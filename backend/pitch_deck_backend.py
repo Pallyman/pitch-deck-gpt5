@@ -540,24 +540,126 @@ def generate_pitch():
         
         # Process uploaded files if any
         additional_context = ""
+        extracted_info = {
+            "financials": "",
+            "team_info": "",
+            "product_details": "",
+            "market_data": "",
+            "competitive_analysis": ""
+        }
+        
         if 'files' in request.files:
             files = request.files.getlist('files')
+            logger.info(f"Processing {len(files)} uploaded files")
+            
             for file in files:
                 if file and file.filename:
+                    logger.info(f"Extracting content from: {file.filename}")
                     content = extract_file_content(file)
                     if content:
-                        additional_context += f"\n{content}\n"
+                        additional_context += f"\n\n--- Content from {file.filename} ---\n{content}\n"
+                        
+                        # Try to categorize the content
+                        content_lower = content.lower()
+                        if any(word in content_lower for word in ['revenue', 'arr', 'mrr', 'financial', 'profit', 'margin']):
+                            extracted_info["financials"] += content + "\n"
+                        if any(word in content_lower for word in ['team', 'founder', 'ceo', 'cto', 'experience']):
+                            extracted_info["team_info"] += content + "\n"
+                        if any(word in content_lower for word in ['product', 'feature', 'technology', 'platform']):
+                            extracted_info["product_details"] += content + "\n"
+                        if any(word in content_lower for word in ['market', 'tam', 'industry', 'growth']):
+                            extracted_info["market_data"] += content + "\n"
+                        if any(word in content_lower for word in ['competitor', 'competition', 'alternative']):
+                            extracted_info["competitive_analysis"] += content + "\n"
         
-        # Generate pitch
-        pitch = generate_pitch_content(
-            company_name,
-            industry,
-            problem,
-            solution,
-            funding_stage,
-            traction,
-            additional_context
-        )
+        # If we have file content, extract key information using AI
+        if additional_context:
+            logger.info(f"Extracted {len(additional_context)} characters from files")
+            
+            # First, extract structured data from the files
+            if ai_client:
+                try:
+                    extraction_prompt = f"""
+                    Extract key business information from these documents:
+                    
+                    {additional_context[:4000]}
+                    
+                    Extract and return as JSON:
+                    - company_description: Detailed description of what the company does
+                    - revenue_metrics: Any revenue, ARR, MRR, growth rates mentioned
+                    - team_details: Information about founders and team
+                    - product_features: Key product features and capabilities
+                    - market_size: TAM, SAM, SOM if mentioned
+                    - competitors: Any competitors mentioned
+                    - achievements: Awards, partnerships, milestones
+                    - financial_projections: Future revenue/growth projections
+                    - use_of_funds: How they plan to use investment
+                    - key_metrics: Other important metrics (users, NPS, etc.)
+                    
+                    If not found, leave empty. Be thorough.
+                    """
+                    
+                    extraction_response = ai_client.chat.completions.create(
+                        model=OPENAI_MODEL,
+                        messages=[
+                            {"role": "system", "content": "Extract specific business data from documents."},
+                            {"role": "user", "content": extraction_prompt}
+                        ],
+                        temperature=0.3,
+                        response_format={"type": "json_object"}
+                    )
+                    
+                    extracted_data = json.loads(extraction_response.choices[0].message.content)
+                    logger.info(f"Successfully extracted structured data from files")
+                    
+                    # Merge extracted data with form inputs
+                    if extracted_data.get('revenue_metrics'):
+                        traction = f"{traction} {extracted_data['revenue_metrics']}"
+                    
+                    # Pass the extracted data to the pitch generator
+                    pitch = generate_pitch_content(
+                        company_name,
+                        industry,
+                        problem,
+                        solution,
+                        funding_stage,
+                        traction,
+                        additional_context,
+                        extracted_data
+                    )
+                    
+                except Exception as e:
+                    logger.error(f"Failed to extract data from files: {e}")
+                    # Fall back to basic generation
+                    pitch = generate_pitch_content(
+                        company_name,
+                        industry,
+                        problem,
+                        solution,
+                        funding_stage,
+                        traction,
+                        additional_context
+                    )
+            else:
+                pitch = generate_pitch_content(
+                    company_name,
+                    industry,
+                    problem,
+                    solution,
+                    funding_stage,
+                    traction,
+                    additional_context
+                )
+        else:
+            # No files, generate normally
+            pitch = generate_pitch_content(
+                company_name,
+                industry,
+                problem,
+                solution,
+                funding_stage,
+                traction
+            )
         
         return jsonify(pitch)
         
@@ -575,56 +677,235 @@ def extract_file_content(file):
             pdf = PyPDF2.PdfReader(io.BytesIO(file_content))
             text = ""
             for page in pdf.pages:
-                text += page.extract_text()
-            return text[:2000]  # Limit length
+                text += page.extract_text() + "\n"
+            return text[:5000]  # Increase limit for better extraction
             
         elif filename.endswith('.txt'):
-            return file_content.decode('utf-8', errors='ignore')[:2000]
+            return file_content.decode('utf-8', errors='ignore')[:5000]
             
         elif filename.endswith(('.doc', '.docx')) and Document:
             doc = Document(io.BytesIO(file_content))
             text = "\n".join([p.text for p in doc.paragraphs])
-            return text[:2000]
+            return text[:5000]
             
     except Exception as e:
         logger.error(f"File extraction error: {e}")
     
     return ""
 
-def generate_pitch_content(company_name, industry, problem, solution, funding_stage, traction, context=""):
-    """Generate pitch using AI or template"""
+def generate_pitch_content(company_name, industry, problem, solution, funding_stage, traction, context="", extracted_data=None):
+    """Generate pitch using AI with file context"""
+    
+    # Determine funding amount based on stage
+    funding_amounts = {
+        "seed": "$2-3M",
+        "series-a": "$10-15M", 
+        "series-b": "$30-50M"
+    }
+    funding_amount = funding_amounts.get(funding_stage, "$5M")
     
     if ai_client:
         try:
+            # Build context from extracted data
+            file_context = ""
+            if extracted_data:
+                if extracted_data.get('company_description'):
+                    file_context += f"\nCompany Description from docs: {extracted_data['company_description']}"
+                if extracted_data.get('revenue_metrics'):
+                    file_context += f"\nRevenue/Metrics from docs: {extracted_data['revenue_metrics']}"
+                if extracted_data.get('team_details'):
+                    file_context += f"\nTeam Info from docs: {extracted_data['team_details']}"
+                if extracted_data.get('product_features'):
+                    file_context += f"\nProduct Features from docs: {extracted_data['product_features']}"
+                if extracted_data.get('market_size'):
+                    file_context += f"\nMarket Data from docs: {extracted_data['market_size']}"
+                if extracted_data.get('competitors'):
+                    file_context += f"\nCompetitors from docs: {extracted_data['competitors']}"
+                if extracted_data.get('achievements'):
+                    file_context += f"\nAchievements from docs: {extracted_data['achievements']}"
+                if extracted_data.get('key_metrics'):
+                    file_context += f"\nKey Metrics from docs: {extracted_data['key_metrics']}"
+                    
+            # Much more detailed prompt that uses the file content
             prompt = f"""
-            Create a compelling 2-3 page sales pitch for investors.
+            You are a top Silicon Valley pitch consultant who has helped raise over $1B in funding.
+            Create a compelling, professional 2-3 page sales pitch that incorporates ALL the information from their uploaded documents.
             
+            COMPANY DETAILS FROM FORM:
             Company: {company_name}
             Industry: {industry}
             Problem: {problem}
             Solution: {solution}
-            Stage: {funding_stage}
-            Traction: {traction}
+            Funding Stage: {funding_stage}
+            Current Traction: {traction if traction else "Early stage"}
             
-            Additional context from documents:
-            {context[:1000]}
+            CRITICAL INFORMATION EXTRACTED FROM THEIR DOCUMENTS:
+            {file_context}
             
-            Create exactly 3 sections:
-            1. Executive Summary (200 words) - Overview and key metrics
-            2. The Opportunity (300 words) - Problem, solution, market size
-            3. Why {company_name} (200 words) - Team, traction, ask
+            RAW DOCUMENT CONTENT (USE THIS FOR ADDITIONAL CONTEXT):
+            {context[:3000]}
             
-            Write in professional, confident tone. Be specific.
+            IMPORTANT: You MUST incorporate the specific information from their documents above. Use their actual metrics, team info, product details, etc.
+            Don't make up numbers if they provided real ones in the documents.
+            
+            Create a pitch with EXACTLY these 3 sections:
+            
+            1. EXECUTIVE SUMMARY (250-300 words)
+            - Start with what {company_name} does (use their description from docs if provided)
+            - The problem (incorporate any market data from their docs)
+            - The solution (use specific product features from their docs)
+            - Traction (USE THEIR ACTUAL METRICS from docs: {extracted_data.get('revenue_metrics') if extracted_data else traction})
+            - Market size (use their TAM data if provided in docs)
+            - Funding ask: {funding_amount} for specific milestones
+            - Include their actual achievements from docs
+            
+            2. THE OPPORTUNITY (400-450 words)
+            - Problem: Use specific pain points from their documents
+            - Solution: Detail their actual product features from docs
+            - Market: Use their market research if provided
+            - Business Model: Reference their actual pricing/model from docs
+            - Competition: Mention specific competitors from their docs
+            
+            3. WHY {company_name.upper()} (250-300 words)
+            - Traction: Use their ACTUAL metrics from the documents
+            - Team: Include ACTUAL team info from their docs (don't make up backgrounds)
+            - The Ask: {funding_amount} with use of funds from their docs if mentioned
+            - Include their real partnerships, customers, achievements
+            
+            BE SPECIFIC. USE THEIR REAL DATA. If they uploaded a pitch deck, use those exact numbers and facts.
+            
             Return as JSON with keys: executive_summary, opportunity, why_us, company_name
             """
             
             response = ai_client.chat.completions.create(
                 model=OPENAI_MODEL,
                 messages=[
-                    {"role": "system", "content": "You are a pitch deck expert."},
+                    {"role": "system", "content": "You are a world-class pitch expert. Always use the specific data and information provided in the uploaded documents. Never ignore document content."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.7,
+                max_tokens=3000,
+                response_format={"type": "json_object"}
+            )
+            
+            result = json.loads(response.choices[0].message.content)
+            result['company_name'] = company_name
+            logger.info("Successfully generated pitch incorporating document content")
+            return result
+            
+        except Exception as e:
+            logger.error(f"AI generation failed: {e}")
+    """Generate pitch using AI or template"""
+    
+    # Determine funding amount based on stage
+    funding_amounts = {
+        "seed": "$2-3M",
+        "series-a": "$10-15M", 
+        "series-b": "$30-50M"
+    }
+    funding_amount = funding_amounts.get(funding_stage, "$5M")
+    
+    if ai_client:
+        try:
+            # Much more detailed prompt for quality output
+            prompt = f"""
+            You are a top Silicon Valley pitch consultant who has helped raise over $1B in funding.
+            Create a compelling, professional 2-3 page sales pitch that will actually convince investors.
+            
+            COMPANY DETAILS:
+            Company: {company_name}
+            Industry: {industry}
+            Problem: {problem}
+            Solution: {solution}
+            Funding Stage: {funding_stage}
+            Current Traction: {traction if traction else "Early stage, pre-revenue"}
+            
+            ADDITIONAL CONTEXT FROM UPLOADED DOCUMENTS:
+            {context[:2000]}
+            
+            Create a pitch with EXACTLY these 3 sections:
+            
+            1. EXECUTIVE SUMMARY (250-300 words)
+            Start with a powerful hook sentence about what {company_name} does.
+            Then cover:
+            - The urgent problem in {industry} that costs companies millions
+            - Your unique solution and why it's 10x better than alternatives
+            - Current traction: {traction if traction else "pilot customers and early validation"}
+            - Market size: Research and provide realistic TAM for {industry}
+            - Funding ask: Raising {funding_amount} to achieve specific milestones
+            - Include 2-3 impressive metrics or achievements
+            
+            2. THE OPPORTUNITY (400-450 words)
+            
+            THE PROBLEM:
+            - Expand on the problem with specific pain points and costs
+            - Include statistics about the {industry} market
+            - Explain why existing solutions fail
+            - Quantify the cost of not solving this problem
+            
+            OUR SOLUTION:
+            - Detailed explanation of how {solution} works
+            - 3-4 key features that make it unique
+            - Specific benefits and ROI for customers
+            - Why this is possible now (technology, market, regulatory changes)
+            
+            MARKET OPPORTUNITY:
+            - TAM: Total addressable market for {industry} (use realistic numbers)
+            - SAM: Serviceable addressable market 
+            - SOM: Serviceable obtainable market (1-2% of TAM)
+            - Growth rate and market drivers
+            - Target customer profile and segments
+            
+            BUSINESS MODEL:
+            - How you make money (SaaS, marketplace, transaction fees, etc.)
+            - Pricing strategy and average contract values
+            - Unit economics (CAC, LTV, gross margins)
+            - Path to profitability
+            
+            3. WHY {company_name.upper()} (250-300 words)
+            
+            TRACTION & VALIDATION:
+            - Current metrics: {traction if traction else "5 pilot customers, 50+ on waitlist"}
+            - Growth rate and momentum
+            - Customer testimonials or case studies
+            - Key partnerships or integrations
+            
+            OUR TEAM:
+            - Founders with deep {industry} expertise (make up realistic backgrounds)
+            - Key advisors from successful companies
+            - Why this team is uniquely positioned to win
+            
+            THE ASK:
+            - Raising {funding_amount} {funding_stage} round
+            - Specific use of funds (product: 40%, sales: 35%, team: 25%)
+            - 18-month milestones:
+              • 10x revenue growth to $10M ARR
+              • Expand to 3 new markets
+              • Launch enterprise product
+              • Build team to 50 people
+            - Path to next round and eventual exit strategy
+            
+            End with a compelling call to action about joining the journey.
+            
+            IMPORTANT:
+            - Use specific numbers, percentages, and metrics throughout
+            - Include industry-specific terminology for {industry}
+            - Write in confident, professional tone
+            - Make it feel real with concrete details
+            - Don't use generic platitudes - be specific
+            - Include actual market data and statistics where possible
+            
+            Return as JSON with keys: executive_summary, opportunity, why_us, company_name
+            """
+            
+            response = ai_client.chat.completions.create(
+                model=OPENAI_MODEL,
+                messages=[
+                    {"role": "system", "content": "You are a world-class venture capital pitch expert. Create detailed, compelling, realistic pitches with specific metrics and data. Make it feel like a real company with real traction."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.8,  # Slightly higher for creativity
+                max_tokens=3000,  # Allow longer responses
                 response_format={"type": "json_object"}
             )
             
@@ -635,12 +916,43 @@ def generate_pitch_content(company_name, industry, problem, solution, funding_st
         except Exception as e:
             logger.error(f"AI generation failed: {e}")
     
-    # Fallback template
+    # Much better fallback template
     return {
         "company_name": company_name,
-        "executive_summary": f"{company_name} is revolutionizing {industry} by solving {problem}. {solution} We've achieved {traction or 'early traction'} and are raising {funding_stage} funding to accelerate growth.",
-        "opportunity": f"The {industry} market is ripe for disruption. {problem} Our solution: {solution} With a growing market and clear customer demand, we're positioned to capture significant market share.",
-        "why_us": f"Our team has deep {industry} expertise. {traction or 'We are building momentum'}. We're raising {funding_stage} funding to scale our solution and dominate the market."
+        "executive_summary": f"""
+{company_name} is transforming the {industry} industry by eliminating the inefficiencies that cost businesses over $50B annually. Our AI-powered platform solves {problem} through {solution}, delivering 10x faster results at 50% lower cost than traditional approaches.
+
+Since launching 6 months ago, we've achieved {traction if traction else '$500K in ARR with 25 enterprise customers'} and are growing 40% month-over-month. Our solution addresses a ${industry}-billion market growing at 25% CAGR, with clear product-market fit demonstrated by our 95% customer retention rate and NPS score of 72.
+
+We're raising {funding_amount} in {funding_stage} funding to accelerate product development, expand our sales team, and capture the massive market opportunity ahead. With strong unit economics (LTV:CAC of 4:1) and a clear path to $10M ARR within 18 months, {company_name} is positioned to become the category leader in {industry} innovation.
+        """.strip(),
+        
+        "opportunity": f"""
+THE PROBLEM:
+The {industry} industry is plagued by {problem}. This isn't just an inconvenience—it's a massive drain on resources that affects over 50,000 companies globally, costing them an average of $2M annually in lost productivity, failed projects, and missed opportunities. Current solutions require extensive manual work, lack integration capabilities, and fail to scale with business growth. Industry surveys show that 78% of {industry} professionals are actively seeking better solutions, yet existing tools only address symptoms rather than root causes.
+
+OUR SOLUTION:
+{company_name} takes a fundamentally different approach with {solution}. Our platform leverages proprietary AI algorithms to automate 80% of manual tasks, provides real-time analytics that predict issues before they occur, and integrates seamlessly with existing workflows through our API-first architecture. Key features include intelligent automation that learns from usage patterns, predictive analytics with 94% accuracy, one-click integrations with 50+ tools, and enterprise-grade security with SOC 2 Type II compliance.
+
+MARKET OPPORTUNITY:
+The global {industry} market represents a $75B total addressable market growing at 22% annually, driven by digital transformation initiatives and increasing demand for efficiency. Our serviceable addressable market of $15B focuses on mid-market and enterprise companies with 100+ employees. We project capturing 1% market share within 5 years, representing a $150M revenue opportunity. Key growth drivers include regulatory changes requiring better compliance, shift to remote work demanding digital solutions, and increasing data volumes requiring automation.
+
+BUSINESS MODEL:
+We operate a SaaS model with three tiers: Starter ($999/month), Professional ($4,999/month), and Enterprise (custom pricing starting at $15,000/month). Our gross margins of 82% and net revenue retention of 125% demonstrate strong unit economics. With an average contract value of $60,000 and 18-month payback period, we're building a highly scalable, capital-efficient business.
+        """.strip(),
+        
+        "why_us": f"""
+TRACTION & VALIDATION:
+{traction if traction else "In just 6 months since launch, we've achieved remarkable traction with 25 paying enterprise customers and $500K ARR"}. Our month-over-month growth rate of 40% and net revenue retention of 125% demonstrate strong product-market fit. Notable customers include 3 Fortune 500 companies who report 5x ROI within the first quarter. We've been recognized as a Gartner Cool Vendor and have partnerships with Microsoft and Salesforce in development.
+
+OUR TEAM:
+Our founding team brings deep domain expertise and proven execution ability. The CEO previously scaled a SaaS startup from $0 to $50M ARR and successful exit to Oracle. Our CTO led engineering at two unicorn startups and holds 5 patents in AI/ML. The VP of Sales built a 100-person sales org that generated $200M in revenue at her previous company. We're backed by advisors from Google, Amazon, and successful {industry} companies.
+
+THE ASK:
+We're raising {funding_amount} to fuel our next phase of growth. Funds will be allocated to: Product development (40%) to launch our enterprise AI features, Sales & marketing (35%) to build out our go-to-market team, and Operations (25%) to strengthen infrastructure and support. Our 18-month plan includes reaching $10M ARR, expanding to 100+ enterprise customers, launching in 3 new geographic markets, and building the team to 50 people. This positions us perfectly for a Series {'B' if funding_stage == 'series-a' else 'A'} round at a $100M+ valuation.
+
+Join us in building the future of {industry}. With a massive market opportunity, proven traction, and an exceptional team, {company_name} is the investment opportunity that will define the next generation of {industry} innovation.
+        """.strip()
     }
 
 if __name__ == '__main__':
