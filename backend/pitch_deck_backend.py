@@ -161,24 +161,27 @@ HTML_TEMPLATE = """
         }
         
         .file-upload-area {
-            border: 3px dashed #a0a0a0;
+            border: 3px dashed #2a5298;
             border-radius: 10px;
-            padding: 30px;
+            padding: 40px;
             text-align: center;
             cursor: pointer;
             transition: all 0.3s;
             background: white;
+            position: relative;
+            min-height: 150px;
         }
         
         .file-upload-area:hover {
-            border-color: #2a5298;
-            background: #f0f4ff;
+            border-color: #2ecc71;
+            background: #f0fff4;
         }
         
         .file-upload-area.dragover {
             border-color: #2ecc71;
             background: #e8f8f5;
             transform: scale(1.02);
+            box-shadow: 0 5px 20px rgba(46, 204, 113, 0.3);
         }
         
         .upload-icon {
@@ -548,42 +551,56 @@ HTML_TEMPLATE = """
             // Click to upload
             uploadArea.addEventListener('click', () => fileInput.click());
             
-            // Prevent default drag behaviors
-            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-                uploadArea.addEventListener(eventName, preventDefaults, false);
-                document.body.addEventListener(eventName, preventDefaults, false);
-            });
-            
-            function preventDefaults(e) {
+            // Prevent default drag behaviors for the entire document
+            document.addEventListener('dragover', function(e) {
                 e.preventDefault();
                 e.stopPropagation();
-            }
+                e.dataTransfer.dropEffect = 'copy';
+            }, false);
             
-            // Highlight drop area when item is dragged over it
-            ['dragenter', 'dragover'].forEach(eventName => {
-                uploadArea.addEventListener(eventName, highlight, false);
-            });
+            document.addEventListener('drop', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }, false);
             
-            ['dragleave', 'drop'].forEach(eventName => {
-                uploadArea.addEventListener(eventName, unhighlight, false);
-            });
+            // Counter for drag enter/leave to handle child elements
+            let dragCounter = 0;
             
-            function highlight(e) {
+            // Handle drag enter
+            uploadArea.addEventListener('dragenter', function(e) {
+                e.preventDefault();
+                dragCounter++;
                 uploadArea.classList.add('dragover');
-            }
+            }, false);
             
-            function unhighlight(e) {
+            // Handle drag over
+            uploadArea.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.dataTransfer.dropEffect = 'copy';
+            }, false);
+            
+            // Handle drag leave
+            uploadArea.addEventListener('dragleave', function(e) {
+                e.preventDefault();
+                dragCounter--;
+                if (dragCounter === 0) {
+                    uploadArea.classList.remove('dragover');
+                }
+            }, false);
+            
+            // Handle drop
+            uploadArea.addEventListener('drop', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                dragCounter = 0;
                 uploadArea.classList.remove('dragover');
-            }
-            
-            // Handle dropped files
-            uploadArea.addEventListener('drop', handleDrop, false);
-            
-            function handleDrop(e) {
-                const dt = e.dataTransfer;
-                const files = dt.files;
-                handleFiles([...files]);
-            }
+                
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    handleFiles(Array.from(files));
+                }
+            }, false);
             
             // Handle file input change
             fileInput.addEventListener('change', (e) => {
