@@ -48,8 +48,10 @@ OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')  # Default to a VALID model
 PORT = int(os.getenv('PORT', 5001))
 
-# Valid OpenAI models (as of 2024)
+# Valid OpenAI models (including GPT-5 as of Aug 2025!)
 VALID_MODELS = [
+    'gpt-5', 'gpt-5-mini', 'gpt-5-nano',  # New GPT-5 models!
+    'gpt-5-2025-08-07',  # Date-versioned GPT-5
     'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 
     'gpt-3.5-turbo', 'gpt-3.5-turbo-16k'
 ]
