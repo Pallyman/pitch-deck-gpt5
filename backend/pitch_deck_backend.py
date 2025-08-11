@@ -1,7 +1,7 @@
 ﻿#!/usr/bin/env python3
 """
-AI-Powered Sales Pitch Generator
-Clean, focused backend for generating 2-3 page sales pitches
+AI Sales Pitch Generator - Clean Rewrite
+Simple, working 2-3 page pitch generator with file upload
 """
 
 import os
@@ -12,61 +12,57 @@ from datetime import datetime
 from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 from dotenv import load_dotenv
-from openai import OpenAI
 
-# Optional imports for file processing
+# OpenAI
+try:
+    from openai import OpenAI
+except ImportError:
+    print("OpenAI not installed")
+    OpenAI = None
+
+# File processing
 try:
     import PyPDF2
 except ImportError:
     PyPDF2 = None
-    print("Warning: PyPDF2 not installed. PDF extraction will be limited.")
 
 try:
     from docx import Document
 except ImportError:
     Document = None
-    print("Warning: python-docx not installed. DOCX extraction will be limited.")
 
-# Load environment variables
+# Load environment
 load_dotenv()
 
-# Initialize Flask app
+# Flask app
 app = Flask(__name__)
 CORS(app, origins=["*"])
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+# Logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Configuration
-class Config:
-    OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-    OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-5-2025-08-07')
-    USE_BUDGET_MODEL = os.getenv('USE_BUDGET_MODEL', 'false').lower() == 'true'
-    PORT = int(os.getenv('PORT', 5001))
+# Config
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4')
+PORT = int(os.getenv('PORT', 5001))
 
-# Initialize OpenAI client
+# Initialize OpenAI
 ai_client = None
-if Config.OPENAI_API_KEY:
-    try:
-        ai_client = OpenAI(api_key=Config.OPENAI_API_KEY)
-        logger.info(f"✅ OpenAI client initialized with model: {Config.OPENAI_MODEL}")
-    except Exception as e:
-        logger.error(f"❌ Failed to initialize OpenAI: {e}")
+if OPENAI_API_KEY and OpenAI:
+    ai_client = OpenAI(api_key=OPENAI_API_KEY)
+    logger.info(f"OpenAI initialized with model: {OPENAI_MODEL}")
 else:
-    logger.warning("⚠️ No OpenAI API key - using mock responses")
+    logger.warning("No OpenAI API key configured")
 
-# HTML Template for the frontend
-HTML_TEMPLATE = """
+# Main HTML page
+HTML_PAGE = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Sales Pitch Generator - 2-Page Professional Pitches</title>
+    <title>AI Sales Pitch Generator</title>
     <style>
         * {
             margin: 0;
@@ -75,347 +71,186 @@ HTML_TEMPLATE = """
         }
         
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
-            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             padding: 20px;
-            color: #333;
         }
         
         .container {
-            max-width: 1400px;
+            max-width: 1200px;
             margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
         }
         
         .header {
-            text-align: center;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            margin-bottom: 40px;
-            animation: fadeIn 0.8s ease;
+            padding: 40px;
+            text-align: center;
         }
         
         .header h1 {
-            font-size: 3rem;
+            font-size: 2.5rem;
             margin-bottom: 10px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
         }
         
-        .header p {
-            font-size: 1.3rem;
-            opacity: 0.95;
-        }
-        
-        .main-grid {
+        .content {
             display: grid;
-            grid-template-columns: 450px 1fr;
-            gap: 30px;
-            animation: slideUp 0.8s ease;
+            grid-template-columns: 500px 1fr;
+            gap: 40px;
+            padding: 40px;
         }
         
-        .input-panel {
-            background: white;
+        .input-section {
+            background: #f8f9fa;
+            padding: 30px;
             border-radius: 15px;
-            padding: 35px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
-            height: fit-content;
-        }
-        
-        .input-panel h2 {
-            color: #1e3c72;
-            margin-bottom: 25px;
-            font-size: 1.8rem;
         }
         
         .form-group {
             margin-bottom: 20px;
         }
         
-        .form-group label {
+        label {
             display: block;
             margin-bottom: 8px;
             font-weight: 600;
-            color: #555;
-            font-size: 0.95rem;
+            color: #333;
         }
         
-        .form-group input,
-        .form-group textarea,
-        .form-group select {
+        input, textarea, select {
             width: 100%;
-            padding: 12px 15px;
+            padding: 12px;
             border: 2px solid #e0e0e0;
             border-radius: 8px;
             font-size: 1rem;
-            transition: all 0.3s;
             font-family: inherit;
         }
         
-        .form-group input:focus,
-        .form-group textarea:focus,
-        .form-group select:focus {
+        input:focus, textarea:focus, select:focus {
             outline: none;
-            border-color: #2a5298;
-            box-shadow: 0 0 0 3px rgba(42, 82, 152, 0.1);
+            border-color: #667eea;
         }
         
-        .form-group textarea {
+        textarea {
             min-height: 100px;
             resize: vertical;
         }
         
-        .required {
-            color: #e74c3c;
-        }
-        
-        .file-upload-section {
-            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-            padding: 20px;
-            border-radius: 10px;
-            margin-bottom: 25px;
-        }
-        
-        .file-upload-area {
-            border: 3px dashed #2a5298;
+        .file-upload-box {
+            border: 3px dashed #667eea;
             border-radius: 10px;
             padding: 40px;
             text-align: center;
             cursor: pointer;
             transition: all 0.3s;
             background: white;
-            position: relative;
-            min-height: 150px;
+            margin-bottom: 20px;
         }
         
-        .file-upload-area:hover {
-            border-color: #2ecc71;
-            background: #f0fff4;
+        .file-upload-box:hover {
+            background: #f0f4ff;
         }
         
-        .file-upload-area.dragging {
-            border-color: #2ecc71;
-            background: #e8f8f5;
-            transform: scale(1.02);
-            box-shadow: 0 5px 20px rgba(46, 204, 113, 0.3);
+        .file-upload-box.drag-over {
+            background: #e8ecff;
+            border-color: #4c63d2;
         }
         
-        .upload-icon {
+        .file-icon {
             font-size: 3rem;
             margin-bottom: 10px;
         }
         
-        .upload-text {
-            font-size: 1.2rem;
-            font-weight: 600;
-            color: #333;
-            margin-bottom: 5px;
-        }
-        
-        .upload-subtext {
-            font-size: 0.9rem;
-            color: #666;
-        }
-        
         .file-list {
-            margin-top: 15px;
+            margin: 20px 0;
         }
         
         .file-item {
             background: white;
-            padding: 10px 15px;
-            border-radius: 8px;
-            margin-bottom: 8px;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 10px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            border: 1px solid #e0e0e0;
         }
         
-        .file-item .file-name {
-            flex: 1;
-            font-weight: 500;
-        }
-        
-        .file-item .remove-file {
-            background: #e74c3c;
+        .remove-btn {
+            background: #ff4444;
             color: white;
             border: none;
             padding: 5px 10px;
             border-radius: 5px;
             cursor: pointer;
-            font-size: 0.85rem;
         }
         
-        .extract-btn {
-            width: 100%;
-            padding: 12px;
-            background: #3498db;
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             border: none;
+            padding: 15px 30px;
             border-radius: 8px;
-            font-size: 1rem;
+            font-size: 1.1rem;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.3s;
-            margin-top: 10px;
-        }
-        
-        .extract-btn:hover {
-            background: #2980b9;
-        }
-        
-        .generate-btn {
             width: 100%;
-            padding: 15px;
-            background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 1.2rem;
-            font-weight: 700;
-            cursor: pointer;
-            transition: all 0.3s;
-            text-transform: uppercase;
-            letter-spacing: 1px;
+            transition: transform 0.3s;
         }
         
-        .generate-btn:hover {
+        .btn:hover {
             transform: translateY(-2px);
-            box-shadow: 0 5px 20px rgba(46, 204, 113, 0.4);
         }
         
-        .generate-btn:disabled {
-            background: #95a5a6;
+        .btn:disabled {
+            opacity: 0.5;
             cursor: not-allowed;
-            transform: none;
         }
         
-        .output-panel {
+        .output-section {
             background: white;
-            border-radius: 15px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
-            overflow: hidden;
-        }
-        
-        .output-header {
-            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-            color: white;
-            padding: 20px 30px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .output-header h2 {
-            font-size: 1.5rem;
-        }
-        
-        .action-buttons {
-            display: flex;
-            gap: 10px;
-        }
-        
-        .action-btn {
-            padding: 8px 16px;
-            background: rgba(255,255,255,0.2);
-            color: white;
-            border: 1px solid rgba(255,255,255,0.3);
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.3s;
-            font-weight: 600;
-        }
-        
-        .action-btn:hover {
-            background: rgba(255,255,255,0.3);
         }
         
         .output-content {
-            padding: 40px;
-            min-height: 600px;
-            max-height: 800px;
-            overflow-y: auto;
-            background: #fafafa;
-        }
-        
-        .pitch-document {
+            padding: 30px;
             background: white;
-            padding: 50px;
+            border: 2px solid #e0e0e0;
             border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            min-height: 500px;
+            max-height: 700px;
+            overflow-y: auto;
+        }
+        
+        .output-content h2 {
+            color: #667eea;
+            margin: 30px 0 20px 0;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #667eea;
+        }
+        
+        .output-content p {
             line-height: 1.8;
-            font-size: 1.05rem;
-        }
-        
-        .pitch-document h1 {
-            color: #1e3c72;
-            font-size: 2.5rem;
-            margin-bottom: 30px;
-            padding-bottom: 15px;
-            border-bottom: 3px solid #2a5298;
-        }
-        
-        .pitch-document h2 {
-            color: #2a5298;
-            font-size: 1.8rem;
-            margin-top: 35px;
-            margin-bottom: 20px;
-        }
-        
-        .pitch-document h3 {
-            color: #34495e;
-            font-size: 1.4rem;
-            margin-top: 25px;
             margin-bottom: 15px;
-        }
-        
-        .pitch-document p {
-            color: #2c3e50;
-            margin-bottom: 18px;
-            text-align: justify;
-        }
-        
-        .pitch-document ul {
-            margin: 20px 0;
-            padding-left: 30px;
-        }
-        
-        .pitch-document li {
-            color: #2c3e50;
-            margin-bottom: 10px;
-        }
-        
-        .pitch-document .highlight {
-            background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
-            padding: 20px;
-            border-left: 4px solid #f39c12;
-            margin: 20px 0;
-            border-radius: 5px;
-        }
-        
-        .empty-state {
-            text-align: center;
-            padding: 100px 20px;
-            color: #95a5a6;
-        }
-        
-        .empty-state h3 {
-            font-size: 1.8rem;
-            margin-bottom: 15px;
+            color: #444;
         }
         
         .loading {
             text-align: center;
-            padding: 100px 20px;
+            padding: 50px;
         }
         
         .spinner {
             border: 4px solid #f3f3f3;
-            border-top: 4px solid #2a5298;
+            border-top: 4px solid #667eea;
             border-radius: 50%;
-            width: 60px;
-            height: 60px;
+            width: 50px;
+            height: 50px;
             animation: spin 1s linear infinite;
-            margin: 0 auto 20px;
+            margin: 20px auto;
         }
         
         @keyframes spin {
@@ -423,44 +258,15 @@ HTML_TEMPLATE = """
             100% { transform: rotate(360deg); }
         }
         
-        @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
-        
-        @keyframes slideUp {
-            from {
-                opacity: 0;
-                transform: translateY(30px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+        .placeholder {
+            text-align: center;
+            padding: 100px 20px;
+            color: #999;
         }
         
         @media (max-width: 1024px) {
-            .main-grid {
+            .content {
                 grid-template-columns: 1fr;
-            }
-        }
-        
-        @media print {
-            body {
-                background: white;
-            }
-            .container {
-                max-width: 100%;
-            }
-            .header, .input-panel, .output-header {
-                display: none;
-            }
-            .output-panel {
-                box-shadow: none;
-            }
-            .pitch-document {
-                box-shadow: none;
-                padding: 20px;
             }
         }
     </style>
@@ -469,82 +275,69 @@ HTML_TEMPLATE = """
     <div class="container">
         <div class="header">
             <h1>🚀 AI Sales Pitch Generator</h1>
-            <p>Create compelling 2-3 page investor pitches powered by GPT-5</p>
+            <p>Create professional 2-3 page investor pitches</p>
         </div>
         
-        <div class="main-grid">
-            <div class="input-panel">
-                <h2>Pitch Details</h2>
+        <div class="content">
+            <div class="input-section">
+                <h2 style="margin-bottom: 25px;">Your Information</h2>
                 
-                <!-- File Upload Section -->
-                <div class="file-upload-section">
-                    <div class="file-upload-area" id="uploadArea">
-                        <div class="upload-icon">📁</div>
-                        <div class="upload-text">Drag & Drop Documents</div>
-                        <div class="upload-subtext">Business plans, pitch decks, financials (PDF, DOCX, TXT)</div>
-                    </div>
-                    <input type="file" id="fileInput" accept=".txt,.pdf,.doc,.docx,.ppt,.pptx" multiple style="display: none;">
-                    <div class="file-list" id="fileList"></div>
-                    <button type="button" class="extract-btn" id="extractBtn" onclick="extractFromFiles()" style="display: none;">
-                        Extract Content from Files
-                    </button>
+                <!-- File Upload -->
+                <div id="dropZone" class="file-upload-box">
+                    <div class="file-icon">📁</div>
+                    <div>Drag files here or click to browse</div>
+                    <small>PDF, Word, or text files</small>
+                </div>
+                <input type="file" id="fileInput" multiple accept=".pdf,.txt,.doc,.docx" style="display: none;">
+                
+                <div id="fileList" class="file-list"></div>
+                
+                <!-- Form -->
+                <div class="form-group">
+                    <label>Company Name *</label>
+                    <input type="text" id="companyName" placeholder="TechVentures Inc.">
                 </div>
                 
-                <form id="pitchForm">
-                    <div class="form-group">
-                        <label>Company Name <span class="required">*</span></label>
-                        <input type="text" id="companyName" placeholder="e.g., TechVentures Inc." required>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label>Industry <span class="required">*</span></label>
-                        <input type="text" id="industry" placeholder="e.g., B2B SaaS, Fintech, Healthcare" required>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label>Problem You Solve <span class="required">*</span></label>
-                        <textarea id="problem" placeholder="Describe the specific problem your company solves..." required></textarea>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label>Your Solution <span class="required">*</span></label>
-                        <textarea id="solution" placeholder="How does your product/service solve this problem?" required></textarea>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label>Funding Stage</label>
-                        <select id="fundingStage">
-                            <option value="pre-seed">Pre-Seed ($250K - $1M)</option>
-                            <option value="seed" selected>Seed ($1M - $3M)</option>
-                            <option value="series-a">Series A ($5M - $15M)</option>
-                            <option value="series-b">Series B ($15M - $50M)</option>
-                        </select>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label>Current Traction</label>
-                        <input type="text" id="traction" placeholder="e.g., 50 customers, $100k MRR, 30% MoM growth">
-                    </div>
-                    
-                    <button type="submit" class="generate-btn" id="generateBtn">
-                        Generate Sales Pitch
-                    </button>
-                </form>
+                <div class="form-group">
+                    <label>Industry *</label>
+                    <input type="text" id="industry" placeholder="B2B SaaS, Fintech, etc.">
+                </div>
+                
+                <div class="form-group">
+                    <label>Problem You Solve *</label>
+                    <textarea id="problem" placeholder="What problem does your company solve?"></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label>Your Solution *</label>
+                    <textarea id="solution" placeholder="How do you solve this problem?"></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label>Funding Stage</label>
+                    <select id="fundingStage">
+                        <option value="seed">Seed</option>
+                        <option value="series-a">Series A</option>
+                        <option value="series-b">Series B</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>Traction (Optional)</label>
+                    <input type="text" id="traction" placeholder="100 customers, $1M ARR, etc.">
+                </div>
+                
+                <button id="generateBtn" class="btn" onclick="generatePitch()">
+                    Generate Sales Pitch
+                </button>
             </div>
             
-            <div class="output-panel">
-                <div class="output-header">
-                    <h2>Generated Pitch</h2>
-                    <div class="action-buttons" id="actionButtons" style="display: none;">
-                        <button class="action-btn" onclick="copyPitch()">📋 Copy</button>
-                        <button class="action-btn" onclick="printPitch()">🖨️ Print/PDF</button>
-                    </div>
-                </div>
-                
-                <div class="output-content" id="outputContent">
-                    <div class="empty-state">
+            <div class="output-section">
+                <h2 style="margin-bottom: 20px;">Generated Pitch</h2>
+                <div class="output-content" id="output">
+                    <div class="placeholder">
                         <h3>Your pitch will appear here</h3>
-                        <p>Fill in your company details and click "Generate Sales Pitch"</p>
+                        <p>Fill in the form and click Generate</p>
                     </div>
                 </div>
             </div>
@@ -552,269 +345,163 @@ HTML_TEMPLATE = """
     </div>
     
     <script>
-        // File upload handling - SIMPLIFIED VERSION
+        // Global variables
         let uploadedFiles = [];
         
-        // Wait for DOM to be ready
-        window.addEventListener('DOMContentLoaded', function() {
-            const uploadArea = document.getElementById('uploadArea');
-            const fileInput = document.getElementById('fileInput');
-            const fileList = document.getElementById('fileList');
-            const extractBtn = document.getElementById('extractBtn');
-            
-            // Click to upload
-            uploadArea.addEventListener('click', function() {
-                fileInput.click();
-            });
-            
-            // Prevent default drag behaviors on the whole document
-            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-                document.addEventListener(eventName, function(e) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                }, false);
-            });
-            
-            // Add visual feedback
-            ['dragenter', 'dragover'].forEach(eventName => {
-                uploadArea.addEventListener(eventName, function() {
-                    uploadArea.style.borderColor = '#2ecc71';
-                    uploadArea.style.backgroundColor = '#e8f8f5';
-                }, false);
-            });
-            
-            ['dragleave', 'drop'].forEach(eventName => {
-                uploadArea.addEventListener(eventName, function() {
-                    uploadArea.style.borderColor = '#2a5298';
-                    uploadArea.style.backgroundColor = 'white';
-                }, false);
-            });
-            
-            // Handle dropped files
-            uploadArea.addEventListener('drop', function(e) {
-                const dt = e.dataTransfer;
-                const files = dt.files;
-                
-                console.log('Files dropped:', files.length);
-                
-                if (files.length > 0) {
-                    handleFiles(files);
-                }
-            }, false);
-            
-            // File input change
-            fileInput.addEventListener('change', function(e) {
-                if (e.target.files.length > 0) {
-                    handleFiles(e.target.files);
-                }
-            });
+        // Get elements
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const fileList = document.getElementById('fileList');
+        
+        // Click to upload
+        dropZone.addEventListener('click', () => {
+            fileInput.click();
         });
         
+        // File input change
+        fileInput.addEventListener('change', (e) => {
+            handleFiles(e.target.files);
+        });
+        
+        // Drag and drop
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.add('drag-over');
+        });
+        
+        dropZone.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.remove('drag-over');
+        });
+        
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.remove('drag-over');
+            
+            const files = e.dataTransfer.files;
+            handleFiles(files);
+        });
+        
+        // Prevent default drag behavior on document
+        document.addEventListener('dragover', (e) => {
+            e.preventDefault();
+        });
+        
+        document.addEventListener('drop', (e) => {
+            e.preventDefault();
+        });
+        
+        // Handle files
         function handleFiles(files) {
-            files.forEach(file => {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    uploadedFiles.push({
-                        name: file.name,
-                        content: e.target.result,
-                        type: file.type
-                    });
-                    updateFileList();
-                };
-                reader.readAsText(file);
-            });
+            for (let file of files) {
+                uploadedFiles.push(file);
+            }
+            updateFileList();
         }
         
+        // Update file list display
         function updateFileList() {
             if (uploadedFiles.length === 0) {
                 fileList.innerHTML = '';
-                extractBtn.style.display = 'none';
                 return;
             }
             
-            fileList.innerHTML = uploadedFiles.map((file, index) => `
+            fileList.innerHTML = uploadedFiles.map((file, idx) => `
                 <div class="file-item">
-                    <span class="file-name">📄 ${file.name}</span>
-                    <button class="remove-file" onclick="removeFile(${index})">Remove</button>
+                    <span>📄 ${file.name}</span>
+                    <button class="remove-btn" onclick="removeFile(${idx})">Remove</button>
                 </div>
             `).join('');
-            
-            extractBtn.style.display = 'block';
         }
         
+        // Remove file
         function removeFile(index) {
             uploadedFiles.splice(index, 1);
             updateFileList();
         }
         
-        async function extractFromFiles() {
-            if (uploadedFiles.length === 0) return;
+        // Generate pitch
+        async function generatePitch() {
+            const companyName = document.getElementById('companyName').value;
+            const industry = document.getElementById('industry').value;
+            const problem = document.getElementById('problem').value;
+            const solution = document.getElementById('solution').value;
+            const fundingStage = document.getElementById('fundingStage').value;
+            const traction = document.getElementById('traction').value;
             
-            extractBtn.disabled = true;
-            extractBtn.textContent = 'Processing...';
-            
-            try {
-                const combinedContent = uploadedFiles.map(file => 
-                    `File: ${file.name}\n${file.content}`
-                ).join('\n\n');
-                
-                // Send to backend for processing
-                const response = await fetch('/api/extract-content', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        content: combinedContent,
-                        file_count: uploadedFiles.length
-                    })
-                });
-                
-                if (response.ok) {
-                    const data = await response.json();
-                    // Populate form fields with extracted data
-                    if (data.company_name) document.getElementById('companyName').value = data.company_name;
-                    if (data.industry) document.getElementById('industry').value = data.industry;
-                    if (data.problem) document.getElementById('problem').value = data.problem;
-                    if (data.solution) document.getElementById('solution').value = data.solution;
-                    if (data.traction) document.getElementById('traction').value = data.traction;
-                    
-                    alert('Content extracted successfully! Review and edit the fields as needed.');
-                } else {
-                    // Fallback: just put content in problem/solution fields
-                    const content = combinedContent.substring(0, 1000);
-                    document.getElementById('problem').value = 'Extracted from documents: ' + content.substring(0, 300);
-                    document.getElementById('solution').value = 'Please review and edit: ' + content.substring(300, 600);
-                    alert('Files loaded. Please review and organize the content in the form fields.');
-                }
-            } catch (error) {
-                console.error('Error:', error);
-                alert('Error processing files. Please manually copy relevant content.');
+            if (!companyName || !industry || !problem || !solution) {
+                alert('Please fill in all required fields');
+                return;
             }
             
-            extractBtn.disabled = false;
-            extractBtn.textContent = 'Extract Content from Files';
-        }
-        
-        // Pitch generation
-        document.getElementById('pitchForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            await generatePitch();
-        });
-        
-        async function generatePitch() {
-            const formData = {
-                company_name: document.getElementById('companyName').value,
-                industry: document.getElementById('industry').value,
-                problem: document.getElementById('problem').value,
-                solution: document.getElementById('solution').value,
-                funding_stage: document.getElementById('fundingStage').value,
-                traction: document.getElementById('traction').value
-            };
-            
             const btn = document.getElementById('generateBtn');
-            const output = document.getElementById('outputContent');
-            const actionButtons = document.getElementById('actionButtons');
+            const output = document.getElementById('output');
             
             btn.disabled = true;
             btn.textContent = 'Generating...';
-            actionButtons.style.display = 'none';
             
-            output.innerHTML = '<div class="loading"><div class="spinner"></div><p>Creating your sales pitch...</p></div>';
+            output.innerHTML = '<div class="loading"><div class="spinner"></div><p>Creating your pitch...</p></div>';
+            
+            // Prepare form data
+            const formData = new FormData();
+            formData.append('company_name', companyName);
+            formData.append('industry', industry);
+            formData.append('problem', problem);
+            formData.append('solution', solution);
+            formData.append('funding_stage', fundingStage);
+            formData.append('traction', traction);
+            
+            // Add files if any
+            uploadedFiles.forEach(file => {
+                formData.append('files', file);
+            });
             
             try {
-                const response = await fetch('/api/generate-pitch', {
+                const response = await fetch('/api/generate', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(formData)
+                    body: formData
                 });
                 
                 const data = await response.json();
                 
                 if (data.error) {
-                    output.innerHTML = `<div class="empty-state"><h3>Error</h3><p>${data.error}</p></div>`;
+                    output.innerHTML = '<p style="color: red;">Error: ' + data.error + '</p>';
                 } else {
                     displayPitch(data);
-                    actionButtons.style.display = 'flex';
                 }
             } catch (error) {
-                output.innerHTML = `<div class="empty-state"><h3>Error</h3><p>Failed to generate pitch. Please try again.</p></div>`;
-                console.error('Error:', error);
+                output.innerHTML = '<p style="color: red;">Error generating pitch</p>';
             }
             
             btn.disabled = false;
             btn.textContent = 'Generate Sales Pitch';
         }
         
+        // Display pitch
         function displayPitch(data) {
-            const output = document.getElementById('outputContent');
+            const output = document.getElementById('output');
             
-            let html = '<div class="pitch-document">';
+            let html = '<h1>' + (data.company_name || 'Sales Pitch') + '</h1>';
             
-            // Title
-            html += `<h1>${data.company_name || 'Company'} - Investment Opportunity</h1>`;
-            
-            // Executive Summary
             if (data.executive_summary) {
                 html += '<h2>Executive Summary</h2>';
-                html += formatContent(data.executive_summary);
+                html += '<p>' + data.executive_summary + '</p>';
             }
             
-            // The Opportunity
             if (data.opportunity) {
                 html += '<h2>The Opportunity</h2>';
-                html += formatContent(data.opportunity);
+                html += '<p>' + data.opportunity + '</p>';
             }
             
-            // Why Us / Why Now
             if (data.why_us) {
                 html += '<h2>Why ' + (data.company_name || 'Us') + '</h2>';
-                html += formatContent(data.why_us);
+                html += '<p>' + data.why_us + '</p>';
             }
-            
-            // Contact
-            if (data.contact) {
-                html += '<div class="highlight">';
-                html += '<h3>Next Steps</h3>';
-                html += formatContent(data.contact);
-                html += '</div>';
-            }
-            
-            html += '</div>';
             
             output.innerHTML = html;
-        }
-        
-        function formatContent(text) {
-            // Convert line breaks to paragraphs
-            let formatted = text.split('\\n\\n').map(para => {
-                // Check if it's a bullet point list
-                if (para.includes('•') || para.includes('-')) {
-                    const items = para.split('\\n').filter(item => item.trim());
-                    return '<ul>' + items.map(item => 
-                        '<li>' + item.replace(/^[•\-]\s*/, '') + '</li>'
-                    ).join('') + '</ul>';
-                }
-                return '<p>' + para.replace(/\\n/g, ' ') + '</p>';
-            }).join('');
-            
-            return formatted;
-        }
-        
-        function copyPitch() {
-            const pitchElement = document.querySelector('.pitch-document');
-            if (pitchElement) {
-                const text = pitchElement.innerText;
-                navigator.clipboard.writeText(text).then(() => {
-                    alert('Pitch copied to clipboard!');
-                });
-            }
-        }
-        
-        function printPitch() {
-            window.print();
         }
     </script>
 </body>
@@ -823,352 +510,149 @@ HTML_TEMPLATE = """
 
 @app.route('/')
 def index():
-    """Serve the main application"""
-    return Response(HTML_TEMPLATE, mimetype='text/html')
+    """Serve the main page"""
+    return Response(HTML_PAGE, mimetype='text/html')
 
 @app.route('/health')
-def health_check():
-    """Health check endpoint"""
+def health():
+    """Health check"""
     return jsonify({
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
-        "ai_provider": "openai",
-        "ai_available": ai_client is not None,
-        "model": Config.OPENAI_MODEL if not Config.USE_BUDGET_MODEL else "gpt-3.5-turbo"
+        "ai_available": ai_client is not None
     })
 
-@app.route('/api/extract-content', methods=['POST'])
-def extract_content():
-    """Extract relevant information from uploaded documents"""
-    try:
-        # Handle file uploads (like AutoVC does)
-        if 'files' not in request.files:
-            return jsonify({"error": "No files uploaded"}), 400
-        
-        files = request.files.getlist('files')
-        combined_content = ""
-        
-        # Process each file
-        for file in files:
-            if file and file.filename:
-                # Read file content
-                file_content = file.read()
-                filename = file.filename.lower()
-                
-                # Extract text based on file type
-                if filename.endswith('.pdf'):
-                    # Extract from PDF
-                    try:
-                        import PyPDF2
-                        import io
-                        pdf_file = io.BytesIO(file_content)
-                        pdf_reader = PyPDF2.PdfReader(pdf_file)
-                        text = ""
-                        for page in pdf_reader.pages:
-                            text += page.extract_text() + "\n"
-                        combined_content += f"\n--- {file.filename} ---\n{text}\n"
-                    except Exception as e:
-                        logger.warning(f"Could not extract PDF {file.filename}: {e}")
-                        combined_content += f"\n--- {file.filename} ---\n[PDF extraction failed]\n"
-                
-                elif filename.endswith('.txt'):
-                    # Decode text file
-                    text = file_content.decode('utf-8', errors='ignore')
-                    combined_content += f"\n--- {file.filename} ---\n{text}\n"
-                
-                elif filename.endswith(('.doc', '.docx')):
-                    # Extract from Word doc
-                    try:
-                        from docx import Document
-                        import io
-                        doc = Document(io.BytesIO(file_content))
-                        text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
-                        combined_content += f"\n--- {file.filename} ---\n{text}\n"
-                    except Exception as e:
-                        logger.warning(f"Could not extract DOCX {file.filename}: {e}")
-                        combined_content += f"\n--- {file.filename} ---\n[DOCX extraction failed]\n"
-                
-                else:
-                    # Try to read as text
-                    try:
-                        text = file_content.decode('utf-8', errors='ignore')
-                        combined_content += f"\n--- {file.filename} ---\n{text}\n"
-                    except:
-                        combined_content += f"\n--- {file.filename} ---\n[Could not read file]\n"
-        
-        if not combined_content.strip():
-            return jsonify({"error": "No content could be extracted from files"}), 400
-        
-        # Use AI to extract structured information
-        if ai_client:
-            prompt = f"""
-            Extract pitch deck information from these documents and return structured data.
-            
-            Documents content:
-            {combined_content[:3000]}
-            
-            Extract and return as JSON:
-            - company_name: The company name
-            - industry: The industry or market
-            - problem: The problem being solved (1-2 sentences)
-            - solution: The solution offered (1-2 sentences)
-            - traction: Any metrics or traction mentioned
-            
-            If information is not found, leave the field empty.
-            """
-            
-            try:
-                response = ai_client.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {"role": "system", "content": "Extract key information from business documents."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    temperature=0.3,
-                    max_tokens=500,
-                    response_format={"type": "json_object"}
-                )
-                
-                result = json.loads(response.choices[0].message.content)
-                logger.info("✅ Extracted content from documents")
-                return jsonify(result)
-                
-            except Exception as e:
-                logger.error(f"❌ AI extraction failed: {e}")
-                # Return partial content as fallback
-                return jsonify({
-                    "company_name": "",
-                    "industry": "",
-                    "problem": combined_content[:300],
-                    "solution": "",
-                    "traction": ""
-                })
-        else:
-            # Basic extraction without AI
-            lines = combined_content.split('\n')[:50]
-            return jsonify({
-                "company_name": "",
-                "industry": "",
-                "problem": ' '.join(lines[:5]) if lines else "",
-                "solution": ' '.join(lines[5:10]) if len(lines) > 5 else "",
-                "traction": ""
-            })
-            
-    except Exception as e:
-        logger.error(f"❌ Error extracting content: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/generate-pitch', methods=['POST'])
+@app.route('/api/generate', methods=['POST'])
 def generate_pitch():
-    """Generate a 2-3 page sales pitch"""
+    """Generate sales pitch with optional file context"""
     try:
-        data = request.json
+        # Get form data
+        company_name = request.form.get('company_name')
+        industry = request.form.get('industry')
+        problem = request.form.get('problem')
+        solution = request.form.get('solution')
+        funding_stage = request.form.get('funding_stage', 'seed')
+        traction = request.form.get('traction', '')
         
-        # Validate required fields
-        required_fields = ['company_name', 'industry', 'problem', 'solution']
-        if not all(data.get(field) for field in required_fields):
+        # Validate
+        if not all([company_name, industry, problem, solution]):
             return jsonify({"error": "Missing required fields"}), 400
         
-        # Select model
-        model = "gpt-3.5-turbo" if Config.USE_BUDGET_MODEL else Config.OPENAI_MODEL
+        # Process uploaded files if any
+        additional_context = ""
+        if 'files' in request.files:
+            files = request.files.getlist('files')
+            for file in files:
+                if file and file.filename:
+                    content = extract_file_content(file)
+                    if content:
+                        additional_context += f"\n{content}\n"
         
-        # Create the prompt for a clean 2-3 page pitch
-        prompt = f"""
-        Create a compelling 2-3 page sales pitch for investors. Write in a professional, confident tone.
+        # Generate pitch
+        pitch = generate_pitch_content(
+            company_name,
+            industry,
+            problem,
+            solution,
+            funding_stage,
+            traction,
+            additional_context
+        )
         
-        Company Information:
-        - Company Name: {data.get('company_name')}
-        - Industry: {data.get('industry')}
-        - Funding Stage: {data.get('funding_stage', 'seed')}
-        - Current Traction: {data.get('traction', 'Early stage, building momentum')}
+        return jsonify(pitch)
         
-        Core Value Proposition:
-        - Problem: {data.get('problem')}
-        - Solution: {data.get('solution')}
-        
-        Create a pitch with EXACTLY these 3 sections:
-        
-        1. EXECUTIVE SUMMARY (200-250 words)
-        Start with a powerful one-sentence description of what the company does.
-        Then cover:
-        - The urgent problem we solve and why it matters now
-        - Our unique solution and competitive advantage
-        - Current traction and momentum
-        - The funding we're raising and what we'll achieve with it
-        
-        2. THE OPPORTUNITY (400-500 words)
-        Structure this section with clear sub-points:
-        
-        The Problem:
-        - Expand on the problem with specific pain points
-        - Include market inefficiencies and costs to businesses
-        - Why existing solutions fall short
-        
-        Our Solution:
-        - How we solve it uniquely
-        - Key features and benefits
-        - Why our approach is 10x better
-        
-        Market Opportunity:
-        - TAM (Total Addressable Market) in billions
-        - Growth rate and market drivers
-        - Our serviceable obtainable market
-        
-        Business Model:
-        - How we make money
-        - Pricing strategy
-        - Unit economics and margins
-        
-        3. WHY {data.get('company_name').upper()} (250-300 words)
-        
-        Traction & Validation:
-        - Current metrics and growth rate
-        - Key customers or partnerships
-        - Product-market fit indicators
-        
-        Our Team:
-        - 2-3 key team members with relevant backgrounds
-        - Why we're uniquely positioned to win
-        
-        The Ask:
-        - Specific funding amount based on stage
-        - 3-4 concrete milestones for next 18 months
-        - Vision for the company's future
-        
-        End with a compelling call to action.
-        
-        Guidelines:
-        - Total length: 850-1050 words (2-3 pages)
-        - Use specific numbers and metrics
-        - Write in clear, concise paragraphs
-        - Avoid bullet points in the main text
-        - Be bold but realistic
-        - Focus on what makes this investment opportunity exceptional
-        
-        Return as JSON with keys: executive_summary, opportunity, why_us, contact, company_name
-        """
-        
-        if ai_client:
-            try:
-                # Make API call to OpenAI
-                response = ai_client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {
-                            "role": "system", 
-                            "content": "You are a top-tier venture capital pitch consultant who has helped raise over $1B in funding. Write compelling, concise pitches that get investors excited."
-                        },
-                        {"role": "user", "content": prompt}
-                    ],
-                    temperature=0.7,
-                    max_tokens=3000 if not Config.USE_BUDGET_MODEL else 2000,
-                    response_format={"type": "json_object"}
-                )
-                
-                result = json.loads(response.choices[0].message.content)
-                result['company_name'] = data.get('company_name')
-                
-                # Add contact section if not present
-                if 'contact' not in result:
-                    result['contact'] = f"Ready to join us in revolutionizing {data.get('industry')}? Let's discuss how {data.get('company_name')} can deliver exceptional returns for your portfolio. Contact our team to schedule a deep dive into our financials, product roadmap, and growth strategy."
-                
-                logger.info(f"✅ Generated pitch for {data.get('company_name')}")
-                return jsonify(result)
-                
-            except Exception as e:
-                logger.error(f"❌ OpenAI API error: {e}")
-                return jsonify({"error": "Failed to generate pitch. Please try again."}), 500
-        else:
-            # Fallback mock response for testing
-            logger.info("Using mock response (no API key)")
-            
-            funding_amounts = {
-                "pre-seed": "$500K",
-                "seed": "$2M",
-                "series-a": "$10M",
-                "series-b": "$30M"
-            }
-            
-            funding = funding_amounts.get(data.get('funding_stage', 'seed'), '$2M')
-            
-            return jsonify({
-                "company_name": data.get('company_name'),
-                "executive_summary": f"""
-{data.get('company_name')} is revolutionizing {data.get('industry')} with an AI-powered platform that {data.get('solution')}. 
-
-The {data.get('industry')} industry faces a critical challenge: {data.get('problem')}. This inefficiency costs businesses millions annually and hampers growth across the sector. Our solution leverages cutting-edge technology to deliver a 10x improvement in efficiency, reducing costs by 60% while improving outcomes.
-
-Since launching six months ago, we've acquired 50+ enterprise customers and are growing at 40% month-over-month. Our current annual recurring revenue has reached $1.2M with a clear path to $10M within 18 months. We're raising {funding} to accelerate product development, expand our sales team, and capture the massive market opportunity ahead of us.
-                """.strip(),
-                
-                "opportunity": f"""
-The Problem:
-{data.get('problem')} This isn't just an inconvenience—it's a massive drain on resources that affects thousands of companies globally. Current solutions are fragmented, expensive, and fail to address the root cause. Businesses are spending over $50B annually trying to work around these limitations, with most seeing minimal improvement.
-
-Our Solution:
-{data.get('company_name')} takes a fundamentally different approach. {data.get('solution')} Our platform integrates seamlessly with existing workflows while providing intelligent automation that learns and improves over time. Key capabilities include real-time analytics, predictive insights, and automated optimization that delivers immediate ROI.
-
-Market Opportunity:
-The {data.get('industry')} market represents a $75B total addressable market growing at 25% annually. Digital transformation and AI adoption are accelerating this growth, with enterprises actively seeking solutions like ours. Our serviceable addressable market is $10B, focusing on mid-market and enterprise customers who need sophisticated solutions. We project capturing 1% market share within 5 years, representing a $100M revenue opportunity.
-
-Business Model:
-We operate on a SaaS model with three tiers: Starter ($999/month), Professional ($4,999/month), and Enterprise (custom pricing starting at $15,000/month). Our gross margins are 82%, with a customer acquisition cost of $5,000 and lifetime value exceeding $150,000. The model is highly scalable with negative churn due to account expansion.
-                """.strip(),
-                
-                "why_us": f"""
-Traction & Validation:
-{data.get('traction', 'In just six months, we have achieved remarkable traction')}. Our net revenue retention rate of 140% demonstrates strong product-market fit. We've secured partnerships with three Fortune 500 companies and have a pipeline of 200+ qualified enterprise leads. Customer satisfaction scores average 9.2/10, with several clients reporting 300% ROI within the first quarter.
-
-Our Team:
-Our founding team brings deep domain expertise and a track record of success. Our CEO previously scaled a SaaS company from $0 to $50M ARR and successful exit. Our CTO led engineering at two unicorn startups and holds multiple patents in AI/ML. Our VP of Sales built and managed a 100+ person sales organization that generated $200M in annual revenue.
-
-The Ask:
-We're raising {funding} to fuel our next phase of growth. This investment will enable us to: (1) Expand our engineering team to accelerate product roadmap, (2) Build out our sales and customer success teams to capture demand, (3) Invest in strategic partnerships and channel development, and (4) Strengthen our market position before competitors emerge.
-
-With this funding, we'll achieve $10M ARR within 18 months and position {data.get('company_name')} as the category leader in {data.get('industry')} innovation.
-                """.strip(),
-                
-                "contact": f"Ready to learn more? Let's discuss how {data.get('company_name')} can deliver exceptional returns for your portfolio. Contact us at invest@{data.get('company_name').lower().replace(' ', '')}.com"
-            })
-            
     except Exception as e:
-        logger.error(f"❌ Error generating pitch: {e}")
+        logger.error(f"Error: {e}")
         return jsonify({"error": str(e)}), 500
 
-@app.errorhandler(404)
-def not_found(e):
-    """Handle 404 errors"""
-    return jsonify({"error": "Endpoint not found"}), 404
+def extract_file_content(file):
+    """Extract text from uploaded file"""
+    try:
+        filename = file.filename.lower()
+        file_content = file.read()
+        
+        if filename.endswith('.pdf') and PyPDF2:
+            pdf = PyPDF2.PdfReader(io.BytesIO(file_content))
+            text = ""
+            for page in pdf.pages:
+                text += page.extract_text()
+            return text[:2000]  # Limit length
+            
+        elif filename.endswith('.txt'):
+            return file_content.decode('utf-8', errors='ignore')[:2000]
+            
+        elif filename.endswith(('.doc', '.docx')) and Document:
+            doc = Document(io.BytesIO(file_content))
+            text = "\n".join([p.text for p in doc.paragraphs])
+            return text[:2000]
+            
+    except Exception as e:
+        logger.error(f"File extraction error: {e}")
+    
+    return ""
 
-@app.errorhandler(500)
-def server_error(e):
-    """Handle 500 errors"""
-    logger.error(f"Server error: {e}")
-    return jsonify({"error": "Internal server error"}), 500
+def generate_pitch_content(company_name, industry, problem, solution, funding_stage, traction, context=""):
+    """Generate pitch using AI or template"""
+    
+    if ai_client:
+        try:
+            prompt = f"""
+            Create a compelling 2-3 page sales pitch for investors.
+            
+            Company: {company_name}
+            Industry: {industry}
+            Problem: {problem}
+            Solution: {solution}
+            Stage: {funding_stage}
+            Traction: {traction}
+            
+            Additional context from documents:
+            {context[:1000]}
+            
+            Create exactly 3 sections:
+            1. Executive Summary (200 words) - Overview and key metrics
+            2. The Opportunity (300 words) - Problem, solution, market size
+            3. Why {company_name} (200 words) - Team, traction, ask
+            
+            Write in professional, confident tone. Be specific.
+            Return as JSON with keys: executive_summary, opportunity, why_us, company_name
+            """
+            
+            response = ai_client.chat.completions.create(
+                model=OPENAI_MODEL,
+                messages=[
+                    {"role": "system", "content": "You are a pitch deck expert."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                response_format={"type": "json_object"}
+            )
+            
+            result = json.loads(response.choices[0].message.content)
+            result['company_name'] = company_name
+            return result
+            
+        except Exception as e:
+            logger.error(f"AI generation failed: {e}")
+    
+    # Fallback template
+    return {
+        "company_name": company_name,
+        "executive_summary": f"{company_name} is revolutionizing {industry} by solving {problem}. {solution} We've achieved {traction or 'early traction'} and are raising {funding_stage} funding to accelerate growth.",
+        "opportunity": f"The {industry} market is ripe for disruption. {problem} Our solution: {solution} With a growing market and clear customer demand, we're positioned to capture significant market share.",
+        "why_us": f"Our team has deep {industry} expertise. {traction or 'We are building momentum'}. We're raising {funding_stage} funding to scale our solution and dominate the market."
+    }
 
 if __name__ == '__main__':
     print(f"""
-    {'='*50}
-    🚀 AI SALES PITCH GENERATOR
-    {'='*50}
+    ========================================
+    AI Sales Pitch Generator
+    ========================================
+    Starting on port {PORT}
+    AI Status: {'Connected' if ai_client else 'Not configured'}
     
-    Server Configuration:
-    - Port: {Config.PORT}
-    - Model: {Config.OPENAI_MODEL if not Config.USE_BUDGET_MODEL else 'gpt-3.5-turbo'}
-    - AI Status: {'✅ Connected' if ai_client else '❌ No API Key'}
-    
-    Available Endpoints:
-    - GET  /              → Main application UI
-    - GET  /health        → Health check
-    - POST /api/generate-pitch → Generate 2-3 page pitch
-    
-    {'='*50}
-    Starting server at http://localhost:{Config.PORT}
-    {'='*50}
+    Visit: http://localhost:{PORT}
+    ========================================
     """)
     
-    app.run(
-        host='0.0.0.0',
-        port=Config.PORT,
-        debug=False
-    )
+    app.run(host='0.0.0.0', port=PORT, debug=False)
