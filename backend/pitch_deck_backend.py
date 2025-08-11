@@ -7,11 +7,25 @@ Clean, focused backend for generating 2-3 page sales pitches
 import os
 import json
 import logging
+import io
 from datetime import datetime
 from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 from dotenv import load_dotenv
 from openai import OpenAI
+
+# Optional imports for file processing
+try:
+    import PyPDF2
+except ImportError:
+    PyPDF2 = None
+    print("Warning: PyPDF2 not installed. PDF extraction will be limited.")
+
+try:
+    from docx import Document
+except ImportError:
+    Document = None
+    print("Warning: python-docx not installed. DOCX extraction will be limited.")
 
 # Load environment variables
 load_dotenv()
@@ -812,11 +826,63 @@ def health_check():
 def extract_content():
     """Extract relevant information from uploaded documents"""
     try:
-        data = request.json
-        content = data.get('content', '')
+        # Handle file uploads (like AutoVC does)
+        if 'files' not in request.files:
+            return jsonify({"error": "No files uploaded"}), 400
         
-        if not content:
-            return jsonify({"error": "No content provided"}), 400
+        files = request.files.getlist('files')
+        combined_content = ""
+        
+        # Process each file
+        for file in files:
+            if file and file.filename:
+                # Read file content
+                file_content = file.read()
+                filename = file.filename.lower()
+                
+                # Extract text based on file type
+                if filename.endswith('.pdf'):
+                    # Extract from PDF
+                    try:
+                        import PyPDF2
+                        import io
+                        pdf_file = io.BytesIO(file_content)
+                        pdf_reader = PyPDF2.PdfReader(pdf_file)
+                        text = ""
+                        for page in pdf_reader.pages:
+                            text += page.extract_text() + "\n"
+                        combined_content += f"\n--- {file.filename} ---\n{text}\n"
+                    except Exception as e:
+                        logger.warning(f"Could not extract PDF {file.filename}: {e}")
+                        combined_content += f"\n--- {file.filename} ---\n[PDF extraction failed]\n"
+                
+                elif filename.endswith('.txt'):
+                    # Decode text file
+                    text = file_content.decode('utf-8', errors='ignore')
+                    combined_content += f"\n--- {file.filename} ---\n{text}\n"
+                
+                elif filename.endswith(('.doc', '.docx')):
+                    # Extract from Word doc
+                    try:
+                        from docx import Document
+                        import io
+                        doc = Document(io.BytesIO(file_content))
+                        text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
+                        combined_content += f"\n--- {file.filename} ---\n{text}\n"
+                    except Exception as e:
+                        logger.warning(f"Could not extract DOCX {file.filename}: {e}")
+                        combined_content += f"\n--- {file.filename} ---\n[DOCX extraction failed]\n"
+                
+                else:
+                    # Try to read as text
+                    try:
+                        text = file_content.decode('utf-8', errors='ignore')
+                        combined_content += f"\n--- {file.filename} ---\n{text}\n"
+                    except:
+                        combined_content += f"\n--- {file.filename} ---\n[Could not read file]\n"
+        
+        if not combined_content.strip():
+            return jsonify({"error": "No content could be extracted from files"}), 400
         
         # Use AI to extract structured information
         if ai_client:
@@ -824,7 +890,7 @@ def extract_content():
             Extract pitch deck information from these documents and return structured data.
             
             Documents content:
-            {content[:3000]}
+            {combined_content[:3000]}
             
             Extract and return as JSON:
             - company_name: The company name
@@ -854,14 +920,21 @@ def extract_content():
                 
             except Exception as e:
                 logger.error(f"❌ AI extraction failed: {e}")
-                return jsonify({"error": "Failed to extract content"}), 500
+                # Return partial content as fallback
+                return jsonify({
+                    "company_name": "",
+                    "industry": "",
+                    "problem": combined_content[:300],
+                    "solution": "",
+                    "traction": ""
+                })
         else:
             # Basic extraction without AI
-            lines = content.split('\n')[:50]
+            lines = combined_content.split('\n')[:50]
             return jsonify({
-                "company_name": lines[0][:50] if lines else "",
+                "company_name": "",
                 "industry": "",
-                "problem": ' '.join(lines[1:5]) if len(lines) > 1 else "",
+                "problem": ' '.join(lines[:5]) if lines else "",
                 "solution": ' '.join(lines[5:10]) if len(lines) > 5 else "",
                 "traction": ""
             })
