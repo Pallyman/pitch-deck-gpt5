@@ -153,6 +153,99 @@ HTML_TEMPLATE = """
             color: #e74c3c;
         }
         
+        .file-upload-section {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 25px;
+        }
+        
+        .file-upload-area {
+            border: 3px dashed #a0a0a0;
+            border-radius: 10px;
+            padding: 30px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: white;
+        }
+        
+        .file-upload-area:hover {
+            border-color: #2a5298;
+            background: #f0f4ff;
+        }
+        
+        .file-upload-area.dragover {
+            border-color: #2ecc71;
+            background: #e8f8f5;
+            transform: scale(1.02);
+        }
+        
+        .upload-icon {
+            font-size: 3rem;
+            margin-bottom: 10px;
+        }
+        
+        .upload-text {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+        }
+        
+        .upload-subtext {
+            font-size: 0.9rem;
+            color: #666;
+        }
+        
+        .file-list {
+            margin-top: 15px;
+        }
+        
+        .file-item {
+            background: white;
+            padding: 10px 15px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border: 1px solid #e0e0e0;
+        }
+        
+        .file-item .file-name {
+            flex: 1;
+            font-weight: 500;
+        }
+        
+        .file-item .remove-file {
+            background: #e74c3c;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.85rem;
+        }
+        
+        .extract-btn {
+            width: 100%;
+            padding: 12px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 10px;
+        }
+        
+        .extract-btn:hover {
+            background: #2980b9;
+        }
+        
         .generate-btn {
             width: 100%;
             padding: 15px;
@@ -365,6 +458,21 @@ HTML_TEMPLATE = """
         <div class="main-grid">
             <div class="input-panel">
                 <h2>Pitch Details</h2>
+                
+                <!-- File Upload Section -->
+                <div class="file-upload-section">
+                    <div class="file-upload-area" id="uploadArea">
+                        <div class="upload-icon">📁</div>
+                        <div class="upload-text">Drag & Drop Documents</div>
+                        <div class="upload-subtext">Business plans, pitch decks, financials (PDF, DOCX, TXT)</div>
+                    </div>
+                    <input type="file" id="fileInput" accept=".txt,.pdf,.doc,.docx,.ppt,.pptx" multiple style="display: none;">
+                    <div class="file-list" id="fileList"></div>
+                    <button type="button" class="extract-btn" id="extractBtn" onclick="extractFromFiles()" style="display: none;">
+                        Extract Content from Files
+                    </button>
+                </div>
+                
                 <form id="pitchForm">
                     <div class="form-group">
                         <label>Company Name <span class="required">*</span></label>
@@ -427,6 +535,125 @@ HTML_TEMPLATE = """
     </div>
     
     <script>
+        // File upload handling
+        let uploadedFiles = [];
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const fileList = document.getElementById('fileList');
+        const extractBtn = document.getElementById('extractBtn');
+        
+        uploadArea.addEventListener('click', () => fileInput.click());
+        
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+        
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+        
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            
+            const files = Array.from(e.dataTransfer.files);
+            handleFiles(files);
+        });
+        
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFiles(Array.from(e.target.files));
+            }
+        });
+        
+        function handleFiles(files) {
+            files.forEach(file => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    uploadedFiles.push({
+                        name: file.name,
+                        content: e.target.result,
+                        type: file.type
+                    });
+                    updateFileList();
+                };
+                reader.readAsText(file);
+            });
+        }
+        
+        function updateFileList() {
+            if (uploadedFiles.length === 0) {
+                fileList.innerHTML = '';
+                extractBtn.style.display = 'none';
+                return;
+            }
+            
+            fileList.innerHTML = uploadedFiles.map((file, index) => `
+                <div class="file-item">
+                    <span class="file-name">📄 ${file.name}</span>
+                    <button class="remove-file" onclick="removeFile(${index})">Remove</button>
+                </div>
+            `).join('');
+            
+            extractBtn.style.display = 'block';
+        }
+        
+        function removeFile(index) {
+            uploadedFiles.splice(index, 1);
+            updateFileList();
+        }
+        
+        async function extractFromFiles() {
+            if (uploadedFiles.length === 0) return;
+            
+            extractBtn.disabled = true;
+            extractBtn.textContent = 'Processing...';
+            
+            try {
+                const combinedContent = uploadedFiles.map(file => 
+                    `File: ${file.name}\n${file.content}`
+                ).join('\n\n');
+                
+                // Send to backend for processing
+                const response = await fetch('/api/extract-content', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        content: combinedContent,
+                        file_count: uploadedFiles.length
+                    })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    // Populate form fields with extracted data
+                    if (data.company_name) document.getElementById('companyName').value = data.company_name;
+                    if (data.industry) document.getElementById('industry').value = data.industry;
+                    if (data.problem) document.getElementById('problem').value = data.problem;
+                    if (data.solution) document.getElementById('solution').value = data.solution;
+                    if (data.traction) document.getElementById('traction').value = data.traction;
+                    
+                    alert('Content extracted successfully! Review and edit the fields as needed.');
+                } else {
+                    // Fallback: just put content in problem/solution fields
+                    const content = combinedContent.substring(0, 1000);
+                    document.getElementById('problem').value = 'Extracted from documents: ' + content.substring(0, 300);
+                    document.getElementById('solution').value = 'Please review and edit: ' + content.substring(300, 600);
+                    alert('Files loaded. Please review and organize the content in the form fields.');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error processing files. Please manually copy relevant content.');
+            }
+            
+            extractBtn.disabled = false;
+            extractBtn.textContent = 'Extract Content from Files';
+        }
+        
+        // Pitch generation
         document.getElementById('pitchForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             await generatePitch();
@@ -566,6 +793,68 @@ def health_check():
         "ai_available": ai_client is not None,
         "model": Config.OPENAI_MODEL if not Config.USE_BUDGET_MODEL else "gpt-3.5-turbo"
     })
+
+@app.route('/api/extract-content', methods=['POST'])
+def extract_content():
+    """Extract relevant information from uploaded documents"""
+    try:
+        data = request.json
+        content = data.get('content', '')
+        
+        if not content:
+            return jsonify({"error": "No content provided"}), 400
+        
+        # Use AI to extract structured information
+        if ai_client:
+            prompt = f"""
+            Extract pitch deck information from these documents and return structured data.
+            
+            Documents content:
+            {content[:3000]}
+            
+            Extract and return as JSON:
+            - company_name: The company name
+            - industry: The industry or market
+            - problem: The problem being solved (1-2 sentences)
+            - solution: The solution offered (1-2 sentences)
+            - traction: Any metrics or traction mentioned
+            
+            If information is not found, leave the field empty.
+            """
+            
+            try:
+                response = ai_client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {"role": "system", "content": "Extract key information from business documents."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.3,
+                    max_tokens=500,
+                    response_format={"type": "json_object"}
+                )
+                
+                result = json.loads(response.choices[0].message.content)
+                logger.info("✅ Extracted content from documents")
+                return jsonify(result)
+                
+            except Exception as e:
+                logger.error(f"❌ AI extraction failed: {e}")
+                return jsonify({"error": "Failed to extract content"}), 500
+        else:
+            # Basic extraction without AI
+            lines = content.split('\n')[:50]
+            return jsonify({
+                "company_name": lines[0][:50] if lines else "",
+                "industry": "",
+                "problem": ' '.join(lines[1:5]) if len(lines) > 1 else "",
+                "solution": ' '.join(lines[5:10]) if len(lines) > 5 else "",
+                "traction": ""
+            })
+            
+    except Exception as e:
+        logger.error(f"❌ Error extracting content: {e}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/generate-pitch', methods=['POST'])
 def generate_pitch():
