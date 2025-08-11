@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 AI-Powered Pitch Deck Builder Backend
 Complete Flask application with AI integration for pitch deck generation
@@ -406,142 +406,142 @@ Investor Deck | {request.funding_stage.title()} Round
             "problem": f"""{request.problem}
 
 Current Pain Points:
-• Inefficient legacy systems costing businesses millions annually
-• 73% of {request.industry} professionals report daily frustrations
-• Average time wasted: 4.5 hours per week per employee
-• Customer satisfaction scores declining 15% YoY
-• No comprehensive solution exists in the market""",
+â€¢ Inefficient legacy systems costing businesses millions annually
+â€¢ 73% of {request.industry} professionals report daily frustrations
+â€¢ Average time wasted: 4.5 hours per week per employee
+â€¢ Customer satisfaction scores declining 15% YoY
+â€¢ No comprehensive solution exists in the market""",
             
             "solution": f"""{request.solution}
 
 Our Approach:
-• AI-powered automation reducing manual work by 80%
-• Seamless integration with existing workflows
-• Real-time analytics and insights dashboard
-• Mobile-first design for modern teams
-• Enterprise-grade security and compliance
+â€¢ AI-powered automation reducing manual work by 80%
+â€¢ Seamless integration with existing workflows
+â€¢ Real-time analytics and insights dashboard
+â€¢ Mobile-first design for modern teams
+â€¢ Enterprise-grade security and compliance
 
 Results: 10x faster, 50% cost reduction, 95% user satisfaction""",
             
             "market": f"""Market Opportunity
 
-📊 Total Addressable Market (TAM): {tam}
+ðŸ“Š Total Addressable Market (TAM): {tam}
    - Growing at 25% CAGR
    - Digital transformation driving demand
 
-🎯 Serviceable Addressable Market (SAM): ${tam[1:-1]}B
+ðŸŽ¯ Serviceable Addressable Market (SAM): ${tam[1:-1]}B
    - Focus on mid-market and enterprise
    - {request.industry} segment specifically
 
-🚀 Serviceable Obtainable Market (SOM): $500M
+ðŸš€ Serviceable Obtainable Market (SOM): $500M
    - Realistic 5-year target
    - 1% market share achievable
 
 Key Drivers:
-• Regulatory changes forcing modernization
-• Remote work acceleration
-• Gen Z entering workforce""",
+â€¢ Regulatory changes forcing modernization
+â€¢ Remote work acceleration
+â€¢ Gen Z entering workforce""",
             
             "business_model": f"""Revenue Model
 
-💰 Subscription (SaaS)
-   • Starter: $99/month (freelancers)
-   • Professional: $499/month (small teams)
-   • Enterprise: $2,999/month (large orgs)
-   • Custom pricing for 100+ seats
+ðŸ’° Subscription (SaaS)
+   â€¢ Starter: $99/month (freelancers)
+   â€¢ Professional: $499/month (small teams)
+   â€¢ Enterprise: $2,999/month (large orgs)
+   â€¢ Custom pricing for 100+ seats
 
 Additional Revenue Streams:
-• Implementation services: $10-50K
-• API access: Usage-based pricing
-• Premium support: 20% of license fee
-• Marketplace commissions: 15%
+â€¢ Implementation services: $10-50K
+â€¢ API access: Usage-based pricing
+â€¢ Premium support: 20% of license fee
+â€¢ Marketplace commissions: 15%
 
 Unit Economics:
-• CAC: $2,000 | LTV: $45,000 | LTV/CAC: 22.5x
-• Gross Margin: 82%
-• Payback Period: 8 months""",
+â€¢ CAC: $2,000 | LTV: $45,000 | LTV/CAC: 22.5x
+â€¢ Gross Margin: 82%
+â€¢ Payback Period: 8 months""",
             
             "traction": f"""Traction & Validation
 
-📈 Growth Metrics:
-• 10,000+ users across 500+ companies
-• $2.5M ARR (growing 30% MoM)
-• 120% net revenue retention
-• NPS Score: 72
-• 5-min average time to value
+ðŸ“ˆ Growth Metrics:
+â€¢ 10,000+ users across 500+ companies
+â€¢ $2.5M ARR (growing 30% MoM)
+â€¢ 120% net revenue retention
+â€¢ NPS Score: 72
+â€¢ 5-min average time to value
 
-🏆 Key Achievements:
-• Product Hunt #1 Product of the Day
-• SOC 2 Type II certified
-• 3 Fortune 500 pilots in progress
-• Strategic partnership with Microsoft
-• 50+ 5-star reviews on G2
+ðŸ† Key Achievements:
+â€¢ Product Hunt #1 Product of the Day
+â€¢ SOC 2 Type II certified
+â€¢ 3 Fortune 500 pilots in progress
+â€¢ Strategic partnership with Microsoft
+â€¢ 50+ 5-star reviews on G2
 
-📊 Usage Stats:
-• 1M+ transactions processed monthly
-• 99.99% uptime over last 12 months
-• 3-minute average response time""",
+ðŸ“Š Usage Stats:
+â€¢ 1M+ transactions processed monthly
+â€¢ 99.99% uptime over last 12 months
+â€¢ 3-minute average response time""",
             
             "competition": f"""Competitive Landscape
 
 Direct Competitors:
-🔴 Legacy Corp ($2B valuation)
+ðŸ”´ Legacy Corp ($2B valuation)
    - Strength: Market share (35%)
    - Weakness: Outdated tech, poor UX
    - Our advantage: 10x faster, 50% cheaper
 
-🟡 StartupX (Series B, $150M raised)
+ðŸŸ¡ StartupX (Series B, $150M raised)
    - Strength: Strong marketing
    - Weakness: Limited features
    - Our advantage: Complete platform
 
-🔵 BigTech's Solution
+ðŸ”µ BigTech's Solution
    - Strength: Brand recognition
    - Weakness: Not specialized
    - Our advantage: Industry focus
 
 Competitive Advantages:
-✅ Proprietary AI technology (3 patents pending)
-✅ 5x faster implementation
-✅ 50% lower TCO
-✅ Best-in-class user experience
-✅ Only solution with full mobile support""",
+âœ… Proprietary AI technology (3 patents pending)
+âœ… 5x faster implementation
+âœ… 50% lower TCO
+âœ… Best-in-class user experience
+âœ… Only solution with full mobile support""",
             
             "team": f"""Leadership Team
 
-👤 CEO & Co-founder
-• 10+ years in {request.industry}
-• Previously VP at Fortune 500
-• Scaled 2 startups to exit
-• Harvard MBA
+ðŸ‘¤ CEO & Co-founder
+â€¢ 10+ years in {request.industry}
+â€¢ Previously VP at Fortune 500
+â€¢ Scaled 2 startups to exit
+â€¢ Harvard MBA
 
-👤 CTO & Co-founder
-• Ex-Google/Amazon engineer
-• 15+ years building scalable systems
-• PhD Computer Science, Stanford
-• 20+ patents in AI/ML
+ðŸ‘¤ CTO & Co-founder
+â€¢ Ex-Google/Amazon engineer
+â€¢ 15+ years building scalable systems
+â€¢ PhD Computer Science, Stanford
+â€¢ 20+ patents in AI/ML
 
-👤 VP Sales
-• Built $100M+ revenue teams
-• Former CRO at unicorn startup
-• Deep industry relationships
+ðŸ‘¤ VP Sales
+â€¢ Built $100M+ revenue teams
+â€¢ Former CRO at unicorn startup
+â€¢ Deep industry relationships
 
-👤 VP Product
-• Led product at 3 successful startups
-• Human-centered design expert
-• Previously at Apple
+ðŸ‘¤ VP Product
+â€¢ Led product at 3 successful startups
+â€¢ Human-centered design expert
+â€¢ Previously at Apple
 
 Advisory Board:
-• Former CEO of [Industry Leader]
-• Partner at Sequoia Capital
-• Professor of AI at MIT""",
+â€¢ Former CEO of [Industry Leader]
+â€¢ Partner at Sequoia Capital
+â€¢ Professor of AI at MIT""",
             
             "financials": f"""Financial Projections
 
 Current Status:
-• Monthly Burn: $250K
-• Runway: 18 months
-• Path to profitability: Q3 2025
+â€¢ Monthly Burn: $250K
+â€¢ Runway: 18 months
+â€¢ Path to profitability: Q3 2025
 
 3-Year Projections:
          Year 1    Year 2     Year 3
@@ -551,40 +551,40 @@ EBITDA:   -$3M     $2M        $15M
 Customers: 50      250        800
 
 Key Assumptions:
-• 15% monthly growth rate Year 1
-• 80% gross margins maintained
-• Sales efficiency improves 20% YoY
-• Churn remains below 5% annually
+â€¢ 15% monthly growth rate Year 1
+â€¢ 80% gross margins maintained
+â€¢ Sales efficiency improves 20% YoY
+â€¢ Churn remains below 5% annually
 
 Use of Funds:
-• Product Development: 40%
-• Sales & Marketing: 35%
-• Operations: 15%
-• General & Admin: 10%""",
+â€¢ Product Development: 40%
+â€¢ Sales & Marketing: 35%
+â€¢ Operations: 15%
+â€¢ General & Admin: 10%""",
             
             "ask": f"""The Ask
 
-🎯 Raising: {funding_amount} {request.funding_stage.title()} Round
+ðŸŽ¯ Raising: {funding_amount} {request.funding_stage.title()} Round
 
 Use of Funds:
-• Engineering: Hire 10 engineers to accelerate product roadmap
-• Sales: Build enterprise sales team (8 reps)
-• Marketing: Scale demand generation and brand
-• Operations: Strengthen infrastructure for scale
+â€¢ Engineering: Hire 10 engineers to accelerate product roadmap
+â€¢ Sales: Build enterprise sales team (8 reps)
+â€¢ Marketing: Scale demand generation and brand
+â€¢ Operations: Strengthen infrastructure for scale
 
 Milestones (Next 18 Months):
-✓ Launch AI-powered analytics suite (Q1)
-✓ Expand to 3 new verticals (Q2)
-✓ Achieve $10M ARR (Q3)
-✓ Close 5 enterprise accounts (Q4)
-✓ International expansion (Q1 Y2)
-✓ Series {chr(ord(request.funding_stage[-1]) + 1).upper() if request.funding_stage.startswith('series') else 'A'} ready
+âœ“ Launch AI-powered analytics suite (Q1)
+âœ“ Expand to 3 new verticals (Q2)
+âœ“ Achieve $10M ARR (Q3)
+âœ“ Close 5 enterprise accounts (Q4)
+âœ“ International expansion (Q1 Y2)
+âœ“ Series {chr(ord(request.funding_stage[-1]) + 1).upper() if request.funding_stage.startswith('series') else 'A'} ready
 
 Why Now:
-• Market inflection point
-• Proven product-market fit
-• Team ready to scale
-• Competition vulnerable
+â€¢ Market inflection point
+â€¢ Proven product-market fit
+â€¢ Team ready to scale
+â€¢ Competition vulnerable
 
 Contact: founders@{request.company_name.lower().replace(' ', '')}.com"""
         }
@@ -725,7 +725,7 @@ class PowerPointExporter:
 @app.route('/')
 def index():
     """Serve the pitch deck builder frontend"""
-    frontend_path = Path(__file__).parent.parent / 'frontend' / 'pitch-deck-builder.html'
+    frontend_path = Path(__file__).parent.parent / 'frontend' / 'pitch_deck_builder.html'
     
     try:
         if frontend_path.exists():
@@ -765,7 +765,7 @@ def index():
         </style>
     </head>
     <body>
-        <h1>🚀 Pitch Deck Builder API</h1>
+        <h1>ðŸš€ Pitch Deck Builder API</h1>
         <p>The API is running! Frontend file not found at expected location.</p>
         
         <h2>Available Endpoints:</h2>
@@ -1142,13 +1142,13 @@ def generate_pitch_html(slides: List[Dict], company_name: str) -> str:
         content = slide.get('content', '').replace('\n', '<br>')
         
         # Convert bullet points
-        if '•' in content:
+        if 'â€¢' in content:
             lines = content.split('<br>')
             formatted_lines = []
             in_list = False
             
             for line in lines:
-                if line.strip().startswith('•'):
+                if line.strip().startswith('â€¢'):
                     if not in_list:
                         formatted_lines.append('<ul>')
                         in_list = True
@@ -1302,7 +1302,7 @@ if __name__ == '__main__':
     debug = os.getenv('FLASK_ENV') == 'development'
     
     print(f"""
-    🚀 Pitch Deck Builder Backend Starting...
+    ðŸš€ Pitch Deck Builder Backend Starting...
     =========================================
     Port: {port}
     Debug: {debug}
