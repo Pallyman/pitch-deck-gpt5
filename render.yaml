@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: pitch-deck-gpt5
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: cd backend && python pitch_deck_backend.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.5
+      - key: PORT
+        value: 5001
