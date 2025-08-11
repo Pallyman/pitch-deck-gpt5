@@ -177,7 +177,7 @@ HTML_TEMPLATE = """
             background: #f0fff4;
         }
         
-        .file-upload-area.dragover {
+        .file-upload-area.dragging {
             border-color: #2ecc71;
             background: #e8f8f5;
             transform: scale(1.02);
@@ -553,27 +553,25 @@ HTML_TEMPLATE = """
                 fileInput.click();
             };
             
-            // Drag and drop handlers
-            uploadArea.ondragover = function(e) {
+            // Drag and drop handlers (using the working AutoVC pattern)
+            uploadArea.addEventListener('dragover', (e) => {
                 e.preventDefault();
-                this.classList.add('dragover');
-                return false;
-            };
-            
-            uploadArea.ondragleave = function(e) {
+                uploadArea.classList.add('dragging');
+            });
+
+            uploadArea.addEventListener('dragleave', () => {
+                uploadArea.classList.remove('dragging');
+            });
+
+            uploadArea.addEventListener('drop', (e) => {
                 e.preventDefault();
-                this.classList.remove('dragover');
-                return false;
-            };
-            
-            uploadArea.ondrop = function(e) {
-                e.preventDefault();
-                this.classList.remove('dragover');
+                uploadArea.classList.remove('dragging');
                 
                 const files = e.dataTransfer.files;
-                handleFiles(Array.from(files));
-                return false;
-            };
+                if (files.length > 0) {
+                    handleFiles(Array.from(files));
+                }
+            });
             
             // File input change
             fileInput.onchange = function(e) {
