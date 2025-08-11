@@ -1,7 +1,7 @@
 ﻿#!/usr/bin/env python3
 """
-AI Sales Pitch Generator - Clean Rewrite
-Simple, working 2-3 page pitch generator with file upload
+AI Sales Pitch Generator - Fixed Version
+Now with proper model validation and clear error messages
 """
 
 import os
@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 try:
     from openai import OpenAI
 except ImportError:
-    print("OpenAI not installed")
+    print("ERROR: OpenAI not installed. Run: pip install openai")
     OpenAI = None
 
 # File processing
@@ -43,30 +43,51 @@ CORS(app, origins=["*"])
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Config
+# Config with validation
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4')  # Default to GPT-4
+OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')  # Default to a VALID model
 PORT = int(os.getenv('PORT', 5001))
 
-# Initialize OpenAI
+# Valid OpenAI models (as of 2024)
+VALID_MODELS = [
+    'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 
+    'gpt-3.5-turbo', 'gpt-3.5-turbo-16k'
+]
+
+# Validate model
+if OPENAI_MODEL not in VALID_MODELS:
+    logger.error(f"❌ Invalid model '{OPENAI_MODEL}'. Valid models: {', '.join(VALID_MODELS)}")
+    logger.warning(f"⚠️ Defaulting to 'gpt-4o-mini'")
+    OPENAI_MODEL = 'gpt-4o-mini'
+
+# Initialize OpenAI with better error handling
 ai_client = None
-if OPENAI_API_KEY and OpenAI:
+ai_status = "Not configured"
+
+if not OPENAI_API_KEY:
+    ai_status = "Missing API key - set OPENAI_API_KEY in environment"
+    logger.error(f"❌ {ai_status}")
+elif not OpenAI:
+    ai_status = "OpenAI library not installed"
+    logger.error(f"❌ {ai_status}")
+else:
     try:
         ai_client = OpenAI(api_key=OPENAI_API_KEY)
-        # Test the API key with a simple request
+        # Test with the ACTUAL model we'll use
         test_response = ai_client.chat.completions.create(
-            model="gpt-3.5-turbo",  # Use cheaper model for test
+            model=OPENAI_MODEL,  # Use the actual model
             messages=[{"role": "user", "content": "test"}],
-            max_tokens=5
+            max_completion_tokens=5  # Use correct parameter name for GPT-5
         )
+        ai_status = f"Connected (using {OPENAI_MODEL})"
         logger.info(f"✅ OpenAI initialized successfully with model: {OPENAI_MODEL}")
     except Exception as e:
+        ai_status = f"Failed: {str(e)}"
         logger.error(f"❌ OpenAI initialization failed: {e}")
+        logger.error(f"   Check your API key and model name ({OPENAI_MODEL})")
         ai_client = None
-else:
-    logger.error("❌ No OpenAI API key configured - set OPENAI_API_KEY in .env file")
 
-# Main HTML page
+# Main HTML page (keeping your original UI)
 HTML_PAGE = """
 <!DOCTYPE html>
 <html lang="en">
@@ -107,6 +128,23 @@ HTML_PAGE = """
         .header h1 {
             font-size: 2.5rem;
             margin-bottom: 10px;
+        }
+        
+        .ai-status {
+            background: rgba(255,255,255,0.2);
+            padding: 10px 20px;
+            border-radius: 20px;
+            display: inline-block;
+            margin-top: 10px;
+            font-size: 0.9rem;
+        }
+        
+        .ai-status.connected {
+            background: rgba(76, 175, 80, 0.3);
+        }
+        
+        .ai-status.error {
+            background: rgba(244, 67, 54, 0.3);
         }
         
         .content {
@@ -275,6 +313,14 @@ HTML_PAGE = """
             color: #999;
         }
         
+        .error-message {
+            background: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        
         @media (max-width: 1024px) {
             .content {
                 grid-template-columns: 1fr;
@@ -287,6 +333,9 @@ HTML_PAGE = """
         <div class="header">
             <h1>🚀 AI Sales Pitch Generator</h1>
             <p>Create professional 2-3 page investor pitches</p>
+            <div class="ai-status" id="aiStatus">
+                Checking AI connection...
+            </div>
         </div>
         
         <div class="content">
@@ -358,6 +407,23 @@ HTML_PAGE = """
     <script>
         // Global variables
         let uploadedFiles = [];
+        
+        // Check AI status on load
+        fetch('/health')
+            .then(res => res.json())
+            .then(data => {
+                const statusEl = document.getElementById('aiStatus');
+                if (data.ai_available) {
+                    statusEl.className = 'ai-status connected';
+                    statusEl.textContent = '✅ AI Connected';
+                } else {
+                    statusEl.className = 'ai-status error';
+                    statusEl.textContent = '⚠️ AI Not Available (using fallback)';
+                }
+            })
+            .catch(() => {
+                document.getElementById('aiStatus').textContent = '❌ Server Error';
+            });
         
         // Get elements
         const dropZone = document.getElementById('dropZone');
@@ -479,12 +545,17 @@ HTML_PAGE = """
                 const data = await response.json();
                 
                 if (data.error) {
-                    output.innerHTML = '<p style="color: red;">Error: ' + data.error + '</p>';
+                    output.innerHTML = `
+                        <div class="error-message">
+                            <strong>Error:</strong> ${data.error}
+                            ${data.details ? `<br><small>${data.details}</small>` : ''}
+                        </div>
+                    `;
                 } else {
                     displayPitch(data);
                 }
             } catch (error) {
-                output.innerHTML = '<p style="color: red;">Error generating pitch</p>';
+                output.innerHTML = '<div class="error-message">Error connecting to server</div>';
             }
             
             btn.disabled = false;
@@ -496,6 +567,10 @@ HTML_PAGE = """
             const output = document.getElementById('output');
             
             let html = '<h1>' + (data.company_name || 'Sales Pitch') + '</h1>';
+            
+            if (data.generation_method) {
+                html += `<p style="color: #667eea; font-size: 0.9rem;">Generated via: ${data.generation_method}</p>`;
+            }
             
             if (data.executive_summary) {
                 html += '<h2>Executive Summary</h2>';
@@ -526,11 +601,13 @@ def index():
 
 @app.route('/health')
 def health():
-    """Health check"""
+    """Health check with detailed status"""
     return jsonify({
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
-        "ai_available": ai_client is not None
+        "ai_available": ai_client is not None,
+        "ai_status": ai_status,
+        "model": OPENAI_MODEL if ai_client else None
     })
 
 @app.route('/api/generate', methods=['POST'])
@@ -551,13 +628,7 @@ def generate_pitch():
         
         # Process uploaded files if any
         additional_context = ""
-        extracted_info = {
-            "financials": "",
-            "team_info": "",
-            "product_details": "",
-            "market_data": "",
-            "competitive_analysis": ""
-        }
+        extracted_data = None
         
         if 'files' in request.files:
             files = request.files.getlist('files')
@@ -569,114 +640,67 @@ def generate_pitch():
                     content = extract_file_content(file)
                     if content:
                         additional_context += f"\n\n--- Content from {file.filename} ---\n{content}\n"
-                        
-                        # Try to categorize the content
-                        content_lower = content.lower()
-                        if any(word in content_lower for word in ['revenue', 'arr', 'mrr', 'financial', 'profit', 'margin']):
-                            extracted_info["financials"] += content + "\n"
-                        if any(word in content_lower for word in ['team', 'founder', 'ceo', 'cto', 'experience']):
-                            extracted_info["team_info"] += content + "\n"
-                        if any(word in content_lower for word in ['product', 'feature', 'technology', 'platform']):
-                            extracted_info["product_details"] += content + "\n"
-                        if any(word in content_lower for word in ['market', 'tam', 'industry', 'growth']):
-                            extracted_info["market_data"] += content + "\n"
-                        if any(word in content_lower for word in ['competitor', 'competition', 'alternative']):
-                            extracted_info["competitive_analysis"] += content + "\n"
         
-        # If we have file content, extract key information using AI
-        if additional_context:
-            logger.info(f"Extracted {len(additional_context)} characters from files")
-            
-            # First, extract structured data from the files
-            if ai_client:
-                try:
-                    extraction_prompt = f"""
-                    Extract key business information from these documents:
-                    
-                    {additional_context[:4000]}
-                    
-                    Extract and return as JSON:
-                    - company_description: Detailed description of what the company does
-                    - revenue_metrics: Any revenue, ARR, MRR, growth rates mentioned
-                    - team_details: Information about founders and team
-                    - product_features: Key product features and capabilities
-                    - market_size: TAM, SAM, SOM if mentioned
-                    - competitors: Any competitors mentioned
-                    - achievements: Awards, partnerships, milestones
-                    - financial_projections: Future revenue/growth projections
-                    - use_of_funds: How they plan to use investment
-                    - key_metrics: Other important metrics (users, NPS, etc.)
-                    
-                    If not found, leave empty. Be thorough.
-                    """
-                    
-                    extraction_response = ai_client.chat.completions.create(
-                        model=OPENAI_MODEL,
-                        messages=[
-                            {"role": "system", "content": "Extract specific business data from documents."},
-                            {"role": "user", "content": extraction_prompt}
-                        ],
-                        temperature=0.3,
-                        response_format={"type": "json_object"}
-                    )
-                    
-                    extracted_data = json.loads(extraction_response.choices[0].message.content)
-                    logger.info(f"Successfully extracted structured data from files")
-                    
-                    # Merge extracted data with form inputs
-                    if extracted_data.get('revenue_metrics'):
-                        traction = f"{traction} {extracted_data['revenue_metrics']}"
-                    
-                    # Pass the extracted data to the pitch generator
-                    pitch = generate_pitch_content(
-                        company_name,
-                        industry,
-                        problem,
-                        solution,
-                        funding_stage,
-                        traction,
-                        additional_context,
-                        extracted_data
-                    )
-                    
-                except Exception as e:
-                    logger.error(f"Failed to extract data from files: {e}")
-                    # Fall back to basic generation
-                    pitch = generate_pitch_content(
-                        company_name,
-                        industry,
-                        problem,
-                        solution,
-                        funding_stage,
-                        traction,
-                        additional_context
-                    )
-            else:
-                pitch = generate_pitch_content(
-                    company_name,
-                    industry,
-                    problem,
-                    solution,
-                    funding_stage,
-                    traction,
-                    additional_context
+        # Extract structured data from files if AI is available
+        if additional_context and ai_client:
+            logger.info(f"Extracting structured data from {len(additional_context)} chars")
+            try:
+                extraction_prompt = f"""
+                Extract key business information from these documents:
+                
+                {additional_context[:4000]}
+                
+                Extract and return as JSON:
+                - company_description: Detailed description of what the company does
+                - revenue_metrics: Any revenue, ARR, MRR, growth rates mentioned
+                - team_details: Information about founders and team
+                - product_features: Key product features and capabilities
+                - market_size: TAM, SAM, SOM if mentioned
+                - competitors: Any competitors mentioned
+                - achievements: Awards, partnerships, milestones
+                - financial_projections: Future revenue/growth projections
+                - use_of_funds: How they plan to use investment
+                - key_metrics: Other important metrics (users, NPS, etc.)
+                
+                If not found, leave empty. Be thorough.
+                """
+                
+                extraction_response = ai_client.chat.completions.create(
+                    model=OPENAI_MODEL,
+                    messages=[
+                        {"role": "system", "content": "Extract specific business data from documents."},
+                        {"role": "user", "content": extraction_prompt}
+                    ],
+                    temperature=1,  # GPT-5 only supports default temperature
+                    response_format={"type": "json_object"}
                 )
-        else:
-            # No files, generate normally
-            pitch = generate_pitch_content(
-                company_name,
-                industry,
-                problem,
-                solution,
-                funding_stage,
-                traction
-            )
+                
+                extracted_data = json.loads(extraction_response.choices[0].message.content)
+                logger.info(f"Successfully extracted structured data from files")
+                
+            except Exception as e:
+                logger.error(f"Failed to extract data from files: {e}")
+        
+        # Generate the pitch
+        pitch = generate_pitch_content(
+            company_name,
+            industry,
+            problem,
+            solution,
+            funding_stage,
+            traction,
+            additional_context,
+            extracted_data
+        )
         
         return jsonify(pitch)
         
     except Exception as e:
-        logger.error(f"Error: {e}")
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"Error in /api/generate: {e}")
+        return jsonify({
+            "error": "Failed to generate pitch",
+            "details": str(e) if app.debug else None
+        }), 500
 
 def extract_file_content(file):
     """Extract text from uploaded file"""
@@ -689,7 +713,7 @@ def extract_file_content(file):
             text = ""
             for page in pdf.pages:
                 text += page.extract_text() + "\n"
-            return text[:5000]  # Increase limit for better extraction
+            return text[:5000]
             
         elif filename.endswith('.txt'):
             return file_content.decode('utf-8', errors='ignore')[:5000]
@@ -720,108 +744,13 @@ def generate_pitch_content(company_name, industry, problem, solution, funding_st
             # Build context from extracted data
             file_context = ""
             if extracted_data:
-                if extracted_data.get('company_description'):
-                    file_context += f"\nCompany Description from docs: {extracted_data['company_description']}"
-                if extracted_data.get('revenue_metrics'):
-                    file_context += f"\nRevenue/Metrics from docs: {extracted_data['revenue_metrics']}"
-                if extracted_data.get('team_details'):
-                    file_context += f"\nTeam Info from docs: {extracted_data['team_details']}"
-                if extracted_data.get('product_features'):
-                    file_context += f"\nProduct Features from docs: {extracted_data['product_features']}"
-                if extracted_data.get('market_size'):
-                    file_context += f"\nMarket Data from docs: {extracted_data['market_size']}"
-                if extracted_data.get('competitors'):
-                    file_context += f"\nCompetitors from docs: {extracted_data['competitors']}"
-                if extracted_data.get('achievements'):
-                    file_context += f"\nAchievements from docs: {extracted_data['achievements']}"
-                if extracted_data.get('key_metrics'):
-                    file_context += f"\nKey Metrics from docs: {extracted_data['key_metrics']}"
-                    
-            # Much more detailed prompt that uses the file content
+                for key, value in extracted_data.items():
+                    if value:
+                        file_context += f"\n{key.replace('_', ' ').title()}: {value}"
+            
             prompt = f"""
             You are a top Silicon Valley pitch consultant who has helped raise over $1B in funding.
-            Create a compelling, professional 2-3 page sales pitch that incorporates ALL the information from their uploaded documents.
-            
-            COMPANY DETAILS FROM FORM:
-            Company: {company_name}
-            Industry: {industry}
-            Problem: {problem}
-            Solution: {solution}
-            Funding Stage: {funding_stage}
-            Current Traction: {traction if traction else "Early stage"}
-            
-            CRITICAL INFORMATION EXTRACTED FROM THEIR DOCUMENTS:
-            {file_context}
-            
-            RAW DOCUMENT CONTENT (USE THIS FOR ADDITIONAL CONTEXT):
-            {context[:3000]}
-            
-            IMPORTANT: You MUST incorporate the specific information from their documents above. Use their actual metrics, team info, product details, etc.
-            Don't make up numbers if they provided real ones in the documents.
-            
-            Create a pitch with EXACTLY these 3 sections:
-            
-            1. EXECUTIVE SUMMARY (250-300 words)
-            - Start with what {company_name} does (use their description from docs if provided)
-            - The problem (incorporate any market data from their docs)
-            - The solution (use specific product features from their docs)
-            - Traction (USE THEIR ACTUAL METRICS from docs: {extracted_data.get('revenue_metrics') if extracted_data else traction})
-            - Market size (use their TAM data if provided in docs)
-            - Funding ask: {funding_amount} for specific milestones
-            - Include their actual achievements from docs
-            
-            2. THE OPPORTUNITY (400-450 words)
-            - Problem: Use specific pain points from their documents
-            - Solution: Detail their actual product features from docs
-            - Market: Use their market research if provided
-            - Business Model: Reference their actual pricing/model from docs
-            - Competition: Mention specific competitors from their docs
-            
-            3. WHY {company_name.upper()} (250-300 words)
-            - Traction: Use their ACTUAL metrics from the documents
-            - Team: Include ACTUAL team info from their docs (don't make up backgrounds)
-            - The Ask: {funding_amount} with use of funds from their docs if mentioned
-            - Include their real partnerships, customers, achievements
-            
-            BE SPECIFIC. USE THEIR REAL DATA. If they uploaded a pitch deck, use those exact numbers and facts.
-            
-            Return as JSON with keys: executive_summary, opportunity, why_us, company_name
-            """
-            
-            response = ai_client.chat.completions.create(
-                model=OPENAI_MODEL,
-                messages=[
-                    {"role": "system", "content": "You are a world-class pitch expert. Always use the specific data and information provided in the uploaded documents. Never ignore document content."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.7,
-                max_tokens=3000,
-                response_format={"type": "json_object"}
-            )
-            
-            result = json.loads(response.choices[0].message.content)
-            result['company_name'] = company_name
-            logger.info("Successfully generated pitch incorporating document content")
-            return result
-            
-        except Exception as e:
-            logger.error(f"AI generation failed: {e}")
-    """Generate pitch using AI or template"""
-    
-    # Determine funding amount based on stage
-    funding_amounts = {
-        "seed": "$2-3M",
-        "series-a": "$10-15M", 
-        "series-b": "$30-50M"
-    }
-    funding_amount = funding_amounts.get(funding_stage, "$5M")
-    
-    if ai_client:
-        try:
-            # Much more detailed prompt for quality output
-            prompt = f"""
-            You are a top Silicon Valley pitch consultant who has helped raise over $1B in funding.
-            Create a compelling, professional 2-3 page sales pitch that will actually convince investors.
+            Create a compelling, professional 2-3 page sales pitch.
             
             COMPANY DETAILS:
             Company: {company_name}
@@ -829,149 +758,106 @@ def generate_pitch_content(company_name, industry, problem, solution, funding_st
             Problem: {problem}
             Solution: {solution}
             Funding Stage: {funding_stage}
-            Current Traction: {traction if traction else "Early stage, pre-revenue"}
+            Current Traction: {traction if traction else "Early stage"}
             
-            ADDITIONAL CONTEXT FROM UPLOADED DOCUMENTS:
-            {context[:2000]}
+            {'EXTRACTED FROM DOCUMENTS:' + file_context if file_context else ''}
+            
+            {'RAW DOCUMENT CONTENT:' + context[:2000] if context else ''}
             
             Create a pitch with EXACTLY these 3 sections:
             
             1. EXECUTIVE SUMMARY (250-300 words)
-            Start with a powerful hook sentence about what {company_name} does.
-            Then cover:
-            - The urgent problem in {industry} that costs companies millions
-            - Your unique solution and why it's 10x better than alternatives
-            - Current traction: {traction if traction else "pilot customers and early validation"}
-            - Market size: Research and provide realistic TAM for {industry}
-            - Funding ask: Raising {funding_amount} to achieve specific milestones
-            - Include 2-3 impressive metrics or achievements
+            - What {company_name} does
+            - The problem and market opportunity
+            - The solution and why it's unique
+            - Current traction (use actual metrics from docs if provided)
+            - Funding ask: {funding_amount}
             
             2. THE OPPORTUNITY (400-450 words)
-            
-            THE PROBLEM:
-            - Expand on the problem with specific pain points and costs
-            - Include statistics about the {industry} market
-            - Explain why existing solutions fail
-            - Quantify the cost of not solving this problem
-            
-            OUR SOLUTION:
-            - Detailed explanation of how {solution} works
-            - 3-4 key features that make it unique
-            - Specific benefits and ROI for customers
-            - Why this is possible now (technology, market, regulatory changes)
-            
-            MARKET OPPORTUNITY:
-            - TAM: Total addressable market for {industry} (use realistic numbers)
-            - SAM: Serviceable addressable market 
-            - SOM: Serviceable obtainable market (1-2% of TAM)
-            - Growth rate and market drivers
-            - Target customer profile and segments
-            
-            BUSINESS MODEL:
-            - How you make money (SaaS, marketplace, transaction fees, etc.)
-            - Pricing strategy and average contract values
-            - Unit economics (CAC, LTV, gross margins)
-            - Path to profitability
+            - Problem details with market pain points
+            - Solution with specific features
+            - Market size and growth
+            - Business model and unit economics
+            - Competitive landscape
             
             3. WHY {company_name.upper()} (250-300 words)
+            - Traction and validation
+            - Team expertise
+            - Use of funds
+            - Path to success
             
-            TRACTION & VALIDATION:
-            - Current metrics: {traction if traction else "5 pilot customers, 50+ on waitlist"}
-            - Growth rate and momentum
-            - Customer testimonials or case studies
-            - Key partnerships or integrations
+            Use specific numbers and metrics. Be compelling and professional.
             
-            OUR TEAM:
-            - Founders with deep {industry} expertise (make up realistic backgrounds)
-            - Key advisors from successful companies
-            - Why this team is uniquely positioned to win
-            
-            THE ASK:
-            - Raising {funding_amount} {funding_stage} round
-            - Specific use of funds (product: 40%, sales: 35%, team: 25%)
-            - 18-month milestones:
-              • 10x revenue growth to $10M ARR
-              • Expand to 3 new markets
-              • Launch enterprise product
-              • Build team to 50 people
-            - Path to next round and eventual exit strategy
-            
-            End with a compelling call to action about joining the journey.
-            
-            IMPORTANT:
-            - Use specific numbers, percentages, and metrics throughout
-            - Include industry-specific terminology for {industry}
-            - Write in confident, professional tone
-            - Make it feel real with concrete details
-            - Don't use generic platitudes - be specific
-            - Include actual market data and statistics where possible
-            
-            Return as JSON with keys: executive_summary, opportunity, why_us, company_name
+            Return as JSON with keys: executive_summary, opportunity, why_us, company_name, generation_method
             """
             
             response = ai_client.chat.completions.create(
                 model=OPENAI_MODEL,
                 messages=[
-                    {"role": "system", "content": "You are a world-class venture capital pitch expert. Create detailed, compelling, realistic pitches with specific metrics and data. Make it feel like a real company with real traction."},
+                    {"role": "system", "content": "You are a world-class pitch expert."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.8,  # Slightly higher for creativity
-                max_tokens=3000,  # Allow longer responses
+                temperature=1,  # GPT-5 only supports default temperature
+                max_completion_tokens=3000,  # Changed from max_tokens
                 response_format={"type": "json_object"}
             )
             
             result = json.loads(response.choices[0].message.content)
             result['company_name'] = company_name
+            result['generation_method'] = f"AI ({OPENAI_MODEL})"
+            logger.info(f"Successfully generated pitch using {OPENAI_MODEL}")
             return result
             
         except Exception as e:
             logger.error(f"AI generation failed: {e}")
+            # Fall through to template
     
-    # Much better fallback template (without broken placeholders)
-    logger.warning("Using fallback template - AI not available or failed")
-    
-    # Parse any numbers from the uploaded context
-    arr_match = re.search(r'\$?([\d\.]+[MK]?) (?:in )?ARR', context, re.IGNORECASE) if context else None
-    actual_arr = arr_match.group(1) if arr_match else "$500K"
-    
-    customers_match = re.search(r'(\d+)\s+(?:enterprise\s+)?customers', context, re.IGNORECASE) if context else None
-    actual_customers = customers_match.group(1) if customers_match else "25"
+    # Fallback template
+    logger.warning("Using fallback template - AI not available")
     
     return {
         "company_name": company_name,
+        "generation_method": "Template (AI unavailable)",
         "executive_summary": f"""
-{company_name} is transforming the {industry} industry by solving the critical challenge of {problem}. Our innovative approach - {solution} - delivers unprecedented value to enterprises seeking competitive advantage in an increasingly complex market.
+{company_name} is transforming the {industry} industry by solving {problem}. 
+Our solution - {solution} - delivers unprecedented value to enterprises.
 
-Since our launch, we've achieved {traction if traction else f'{actual_arr} in annual recurring revenue with {actual_customers} enterprise customers'}, demonstrating strong product-market fit and rapid market adoption. Our solution addresses a multi-billion dollar market opportunity in {industry}, with enterprises spending billions annually on inadequate solutions.
+Since launch, we've achieved {traction if traction else 'strong early traction'}, 
+demonstrating product-market fit. The {industry} market represents a multi-billion 
+dollar opportunity.
 
-We're raising {funding_amount} in {funding_stage} funding to accelerate our growth trajectory. This investment will fuel product innovation, sales expansion, and operational scaling as we capitalize on our first-mover advantage in this rapidly evolving market.
+We're raising {funding_amount} in {funding_stage} funding to accelerate growth 
+and capture market share.
         """.strip(),
         
         "opportunity": f"""
 THE PROBLEM:
-{problem} represents one of the most significant challenges facing the {industry} sector today. Organizations struggle with inefficient processes, fragmented solutions, and inability to scale effectively. This results in millions in lost revenue, decreased productivity, and competitive disadvantage. Current solutions fail to address the root cause, offering only partial fixes that create more complexity.
+{problem} is a critical challenge in {industry}. Organizations struggle with 
+inefficiency and lost revenue.
 
 OUR SOLUTION:
-{company_name}'s approach is fundamentally different. {solution} - this isn't just an incremental improvement, but a complete reimagining of how {industry} companies operate. Our platform delivers immediate value through automated workflows, intelligent insights, and seamless integration with existing systems. Customers report dramatic improvements in efficiency, cost reduction, and strategic decision-making capability.
+{solution} provides a fundamentally better approach. We deliver immediate value 
+through automation and insights.
 
 MARKET OPPORTUNITY:
-The {industry} market is experiencing unprecedented growth, driven by digital transformation, changing customer expectations, and regulatory requirements. Conservative estimates place the total addressable market at tens of billions, with double-digit annual growth rates. Our initial focus on enterprise customers represents a multi-billion dollar opportunity, with clear expansion paths into adjacent markets and international regions.
+The {industry} market is experiencing rapid growth. Our addressable market 
+exceeds several billion dollars.
 
 BUSINESS MODEL:
-We've developed a scalable SaaS model with strong unit economics. Our tiered pricing structure serves organizations from mid-market to enterprise, with average contract values growing consistently. High gross margins and increasing customer lifetime value demonstrate the sustainability and scalability of our business model.
+We operate a scalable SaaS model with strong unit economics and growing 
+customer lifetime value.
         """.strip(),
         
         "why_us": f"""
-TRACTION & VALIDATION:
-Our growth trajectory validates the market need and our solution's effectiveness. {traction if traction else f'With {actual_arr} in ARR and {actual_customers} customers, including Fortune 500 companies'}, we've proven our ability to win and retain enterprise accounts. Customer success stories include dramatic ROI, operational improvements, and competitive advantages gained through our platform.
+TRACTION:
+{traction if traction else 'Early customer validation and growing pipeline'}.
 
-OUR TEAM:
-{company_name} is led by a team with deep expertise in {industry} and proven track records of building successful companies. Our leadership combines technical innovation with go-to-market excellence, supported by advisors and investors who've built category-defining companies. This is not our first venture - we've successfully scaled companies, navigated complex markets, and delivered exceptional returns.
+TEAM:
+Led by experienced operators with deep {industry} expertise.
 
 THE ASK:
-We're raising {funding_amount} to accelerate our momentum. Investment will be strategically deployed across three key areas: Product development to maintain our technical advantage, Sales and marketing to capture market share, and Operations to support our scaling needs. Our roadmap includes expanding our enterprise features, entering new markets, and building the team to support 10x growth over the next 18 months.
-
-This is an opportunity to invest in the future of {industry}. With proven traction, a massive market opportunity, and an exceptional team, {company_name} is positioned to become the category-defining company in this space.
+Raising {funding_amount} to expand product, grow sales, and scale operations.
+{company_name} is positioned to become the leader in this space.
         """.strip()
     }
 
@@ -981,10 +867,11 @@ if __name__ == '__main__':
     AI Sales Pitch Generator
     ========================================
     Starting on port {PORT}
-    AI Status: {'Connected' if ai_client else 'Not configured'}
+    AI Status: {ai_status}
+    Model: {OPENAI_MODEL if ai_client else 'N/A'}
     
     Visit: http://localhost:{PORT}
     ========================================
     """)
     
-    app.run(host='0.0.0.0', port=PORT, debug=False)
+    app.run(host='0.0.0.0', port=PORT, debug=True)
