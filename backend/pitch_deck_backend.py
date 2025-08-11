@@ -552,48 +552,63 @@ HTML_TEMPLATE = """
     </div>
     
     <script>
-        // File upload handling
+        // File upload handling - SIMPLIFIED VERSION
         let uploadedFiles = [];
         
         // Wait for DOM to be ready
-        window.onload = function() {
+        window.addEventListener('DOMContentLoaded', function() {
             const uploadArea = document.getElementById('uploadArea');
             const fileInput = document.getElementById('fileInput');
             const fileList = document.getElementById('fileList');
             const extractBtn = document.getElementById('extractBtn');
             
             // Click to upload
-            uploadArea.onclick = function() {
+            uploadArea.addEventListener('click', function() {
                 fileInput.click();
-            };
+            });
             
-            // Drag and drop handlers (using the working AutoVC pattern)
-            uploadArea.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                uploadArea.classList.add('dragging');
+            // Prevent default drag behaviors on the whole document
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                document.addEventListener(eventName, function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }, false);
             });
-
-            uploadArea.addEventListener('dragleave', () => {
-                uploadArea.classList.remove('dragging');
+            
+            // Add visual feedback
+            ['dragenter', 'dragover'].forEach(eventName => {
+                uploadArea.addEventListener(eventName, function() {
+                    uploadArea.style.borderColor = '#2ecc71';
+                    uploadArea.style.backgroundColor = '#e8f8f5';
+                }, false);
             });
-
-            uploadArea.addEventListener('drop', (e) => {
-                e.preventDefault();
-                uploadArea.classList.remove('dragging');
+            
+            ['dragleave', 'drop'].forEach(eventName => {
+                uploadArea.addEventListener(eventName, function() {
+                    uploadArea.style.borderColor = '#2a5298';
+                    uploadArea.style.backgroundColor = 'white';
+                }, false);
+            });
+            
+            // Handle dropped files
+            uploadArea.addEventListener('drop', function(e) {
+                const dt = e.dataTransfer;
+                const files = dt.files;
                 
-                const files = e.dataTransfer.files;
+                console.log('Files dropped:', files.length);
+                
                 if (files.length > 0) {
-                    handleFiles(Array.from(files));
+                    handleFiles(files);
                 }
-            });
+            }, false);
             
             // File input change
-            fileInput.onchange = function(e) {
-                if (this.files.length > 0) {
-                    handleFiles(Array.from(this.files));
+            fileInput.addEventListener('change', function(e) {
+                if (e.target.files.length > 0) {
+                    handleFiles(e.target.files);
                 }
-            };
-        };
+            });
+        });
         
         function handleFiles(files) {
             files.forEach(file => {
