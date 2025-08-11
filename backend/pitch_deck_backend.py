@@ -542,73 +542,46 @@ HTML_TEMPLATE = """
         let uploadedFiles = [];
         
         // Wait for DOM to be ready
-        document.addEventListener('DOMContentLoaded', function() {
+        window.onload = function() {
             const uploadArea = document.getElementById('uploadArea');
             const fileInput = document.getElementById('fileInput');
             const fileList = document.getElementById('fileList');
             const extractBtn = document.getElementById('extractBtn');
             
             // Click to upload
-            uploadArea.addEventListener('click', () => fileInput.click());
+            uploadArea.onclick = function() {
+                fileInput.click();
+            };
             
-            // Prevent default drag behaviors for the entire document
-            document.addEventListener('dragover', function(e) {
+            // Drag and drop handlers
+            uploadArea.ondragover = function(e) {
                 e.preventDefault();
-                e.stopPropagation();
-                e.dataTransfer.dropEffect = 'copy';
-            }, false);
+                this.classList.add('dragover');
+                return false;
+            };
             
-            document.addEventListener('drop', function(e) {
+            uploadArea.ondragleave = function(e) {
                 e.preventDefault();
-                e.stopPropagation();
-            }, false);
+                this.classList.remove('dragover');
+                return false;
+            };
             
-            // Counter for drag enter/leave to handle child elements
-            let dragCounter = 0;
-            
-            // Handle drag enter
-            uploadArea.addEventListener('dragenter', function(e) {
+            uploadArea.ondrop = function(e) {
                 e.preventDefault();
-                dragCounter++;
-                uploadArea.classList.add('dragover');
-            }, false);
-            
-            // Handle drag over
-            uploadArea.addEventListener('dragover', function(e) {
-                e.preventDefault();
-                e.stopPropagation();
-                e.dataTransfer.dropEffect = 'copy';
-            }, false);
-            
-            // Handle drag leave
-            uploadArea.addEventListener('dragleave', function(e) {
-                e.preventDefault();
-                dragCounter--;
-                if (dragCounter === 0) {
-                    uploadArea.classList.remove('dragover');
-                }
-            }, false);
-            
-            // Handle drop
-            uploadArea.addEventListener('drop', function(e) {
-                e.preventDefault();
-                e.stopPropagation();
-                dragCounter = 0;
-                uploadArea.classList.remove('dragover');
+                this.classList.remove('dragover');
                 
                 const files = e.dataTransfer.files;
-                if (files.length > 0) {
-                    handleFiles(Array.from(files));
-                }
-            }, false);
+                handleFiles(Array.from(files));
+                return false;
+            };
             
-            // Handle file input change
-            fileInput.addEventListener('change', (e) => {
-                if (e.target.files.length > 0) {
-                    handleFiles(Array.from(e.target.files));
+            // File input change
+            fileInput.onchange = function(e) {
+                if (this.files.length > 0) {
+                    handleFiles(Array.from(this.files));
                 }
-            });
-        });
+            };
+        };
         
         function handleFiles(files) {
             files.forEach(file => {
