@@ -1,1329 +1,783 @@
 ﻿#!/usr/bin/env python3
 """
-AI-Powered Pitch Deck Builder Backend
-Complete Flask application with AI integration for pitch deck generation
+AI-Powered Sales Pitch Generator
+Clean, focused backend for generating 2-3 page sales pitches
 """
 
 import os
 import json
-import io
 import logging
-import re
 from datetime import datetime
-from typing import Dict, List, Optional, Any
-from dataclasses import dataclass, asdict
-from pathlib import Path
-
-from flask import Flask, request, jsonify, send_file, render_template_string
+from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
 from dotenv import load_dotenv
-
-# For AI providers
-try:
-    import openai
-except ImportError:
-    openai = None
-
-try:
-    import anthropic
-except ImportError:
-    anthropic = None
-
-# For file processing
-try:
-    import PyPDF2
-except ImportError:
-    PyPDF2 = None
-    print("Warning: PyPDF2 not installed. PDF extraction will be limited.")
-
-try:
-    from docx import Document
-except ImportError:
-    Document = None
-    print("Warning: python-docx not installed. DOCX extraction will be limited.")
-
-try:
-    from pptx import Presentation
-except ImportError:
-    Presentation = None
-    print("Warning: python-pptx not installed. PowerPoint export will be limited.")
+from openai import OpenAI
 
 # Load environment variables
 load_dotenv()
 
 # Initialize Flask app
 app = Flask(__name__)
-CORS(app, origins=["http://localhost:*", "http://127.0.0.1:*", "https://*.onrender.com"])
-
-# Set up rate limiting
-limiter = Limiter(
-    app=app,
-    key_func=get_remote_address,
-    default_limits=["100 per hour"],
-    storage_uri="memory://"
-)
+CORS(app, origins=["*"])
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
 # Configuration
 class Config:
-    """Application configuration"""
-    SECRET_KEY = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
-    AI_PROVIDER = os.getenv('AI_PROVIDER', 'openai')
     OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-    OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-5')  # Default to GPT-5
-    ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
-    MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # 50MB max file size
+    OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-5-2025-08-07')
     USE_BUDGET_MODEL = os.getenv('USE_BUDGET_MODEL', 'false').lower() == 'true'
+    PORT = int(os.getenv('PORT', 5001))
 
-app.config.from_object(Config)
-
-# Initialize AI clients
-if Config.AI_PROVIDER == 'openai' and openai and Config.OPENAI_API_KEY:
-    from openai import OpenAI
-    ai_client = OpenAI(api_key=Config.OPENAI_API_KEY)
-elif Config.AI_PROVIDER == 'anthropic' and anthropic and Config.ANTHROPIC_API_KEY:
-    ai_client = anthropic.Anthropic(api_key=Config.ANTHROPIC_API_KEY)
+# Initialize OpenAI client
+ai_client = None
+if Config.OPENAI_API_KEY:
+    try:
+        ai_client = OpenAI(api_key=Config.OPENAI_API_KEY)
+        logger.info(f"✅ OpenAI client initialized with model: {Config.OPENAI_MODEL}")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize OpenAI: {e}")
 else:
-    ai_client = None
-    logger.warning("No AI provider configured. Using mock responses.")
+    logger.warning("⚠️ No OpenAI API key - using mock responses")
 
-# Data models
-@dataclass
-class PitchSlide:
-    """Individual pitch slide structure"""
-    type: str
-    title: str
-    content: str
-    order: int
-    metadata: Optional[Dict] = None
-
-@dataclass
-class PitchDeck:
-    """Complete pitch deck structure"""
-    company_name: str
-    tagline: str
-    industry: str
-    funding_stage: str
-    slides: List[PitchSlide]
-    contact_info: Optional[Dict] = None
-
-@dataclass
-class PitchRequest:
-    """Pitch generation request"""
-    company_name: str
-    industry: str
-    problem: str
-    solution: str
-    funding_stage: str = "seed"
-    target_investors: Optional[str] = None
-    team_size: Optional[int] = None
-    current_traction: Optional[str] = None
-
-# AI Pitch Generator
-class AIPitchGenerator:
-    """Handles AI-powered pitch deck generation"""
+# HTML Template for the frontend
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Sales Pitch Generator - 2-Page Professional Pitches</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 40px;
+            animation: fadeIn 0.8s ease;
+        }
+        
+        .header h1 {
+            font-size: 3rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .header p {
+            font-size: 1.3rem;
+            opacity: 0.95;
+        }
+        
+        .main-grid {
+            display: grid;
+            grid-template-columns: 450px 1fr;
+            gap: 30px;
+            animation: slideUp 0.8s ease;
+        }
+        
+        .input-panel {
+            background: white;
+            border-radius: 15px;
+            padding: 35px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            height: fit-content;
+        }
+        
+        .input-panel h2 {
+            color: #1e3c72;
+            margin-bottom: 25px;
+            font-size: 1.8rem;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #555;
+            font-size: 0.95rem;
+        }
+        
+        .form-group input,
+        .form-group textarea,
+        .form-group select {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: all 0.3s;
+            font-family: inherit;
+        }
+        
+        .form-group input:focus,
+        .form-group textarea:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #2a5298;
+            box-shadow: 0 0 0 3px rgba(42, 82, 152, 0.1);
+        }
+        
+        .form-group textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+        
+        .required {
+            color: #e74c3c;
+        }
+        
+        .generate-btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.2rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .generate-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(46, 204, 113, 0.4);
+        }
+        
+        .generate-btn:disabled {
+            background: #95a5a6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .output-panel {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+        
+        .output-header {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            padding: 20px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .output-header h2 {
+            font-size: 1.5rem;
+        }
+        
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .action-btn {
+            padding: 8px 16px;
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 600;
+        }
+        
+        .action-btn:hover {
+            background: rgba(255,255,255,0.3);
+        }
+        
+        .output-content {
+            padding: 40px;
+            min-height: 600px;
+            max-height: 800px;
+            overflow-y: auto;
+            background: #fafafa;
+        }
+        
+        .pitch-document {
+            background: white;
+            padding: 50px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            line-height: 1.8;
+            font-size: 1.05rem;
+        }
+        
+        .pitch-document h1 {
+            color: #1e3c72;
+            font-size: 2.5rem;
+            margin-bottom: 30px;
+            padding-bottom: 15px;
+            border-bottom: 3px solid #2a5298;
+        }
+        
+        .pitch-document h2 {
+            color: #2a5298;
+            font-size: 1.8rem;
+            margin-top: 35px;
+            margin-bottom: 20px;
+        }
+        
+        .pitch-document h3 {
+            color: #34495e;
+            font-size: 1.4rem;
+            margin-top: 25px;
+            margin-bottom: 15px;
+        }
+        
+        .pitch-document p {
+            color: #2c3e50;
+            margin-bottom: 18px;
+            text-align: justify;
+        }
+        
+        .pitch-document ul {
+            margin: 20px 0;
+            padding-left: 30px;
+        }
+        
+        .pitch-document li {
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+        
+        .pitch-document .highlight {
+            background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+            padding: 20px;
+            border-left: 4px solid #f39c12;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 100px 20px;
+            color: #95a5a6;
+        }
+        
+        .empty-state h3 {
+            font-size: 1.8rem;
+            margin-bottom: 15px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 100px 20px;
+        }
+        
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #2a5298;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @media (max-width: 1024px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        @media print {
+            body {
+                background: white;
+            }
+            .container {
+                max-width: 100%;
+            }
+            .header, .input-panel, .output-header {
+                display: none;
+            }
+            .output-panel {
+                box-shadow: none;
+            }
+            .pitch-document {
+                box-shadow: none;
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 AI Sales Pitch Generator</h1>
+            <p>Create compelling 2-3 page investor pitches powered by GPT-5</p>
+        </div>
+        
+        <div class="main-grid">
+            <div class="input-panel">
+                <h2>Pitch Details</h2>
+                <form id="pitchForm">
+                    <div class="form-group">
+                        <label>Company Name <span class="required">*</span></label>
+                        <input type="text" id="companyName" placeholder="e.g., TechVentures Inc." required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Industry <span class="required">*</span></label>
+                        <input type="text" id="industry" placeholder="e.g., B2B SaaS, Fintech, Healthcare" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Problem You Solve <span class="required">*</span></label>
+                        <textarea id="problem" placeholder="Describe the specific problem your company solves..." required></textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Your Solution <span class="required">*</span></label>
+                        <textarea id="solution" placeholder="How does your product/service solve this problem?" required></textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Funding Stage</label>
+                        <select id="fundingStage">
+                            <option value="pre-seed">Pre-Seed ($250K - $1M)</option>
+                            <option value="seed" selected>Seed ($1M - $3M)</option>
+                            <option value="series-a">Series A ($5M - $15M)</option>
+                            <option value="series-b">Series B ($15M - $50M)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Current Traction</label>
+                        <input type="text" id="traction" placeholder="e.g., 50 customers, $100k MRR, 30% MoM growth">
+                    </div>
+                    
+                    <button type="submit" class="generate-btn" id="generateBtn">
+                        Generate Sales Pitch
+                    </button>
+                </form>
+            </div>
+            
+            <div class="output-panel">
+                <div class="output-header">
+                    <h2>Generated Pitch</h2>
+                    <div class="action-buttons" id="actionButtons" style="display: none;">
+                        <button class="action-btn" onclick="copyPitch()">📋 Copy</button>
+                        <button class="action-btn" onclick="printPitch()">🖨️ Print/PDF</button>
+                    </div>
+                </div>
+                
+                <div class="output-content" id="outputContent">
+                    <div class="empty-state">
+                        <h3>Your pitch will appear here</h3>
+                        <p>Fill in your company details and click "Generate Sales Pitch"</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
     
-    @staticmethod
-    def generate_with_openai(request: PitchRequest) -> Dict[str, Any]:
-        """Generate pitch deck using OpenAI GPT-5 with full capabilities"""
-        if not ai_client:
-            return AIPitchGenerator.generate_mock_pitch(request)
+    <script>
+        document.getElementById('pitchForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            await generatePitch();
+        });
         
-        # Choose model based on configuration
-        if Config.USE_BUDGET_MODEL:
-            model = "gpt-3.5-turbo"
-            max_tokens = 2000
-            logger.info("Using GPT-3.5-turbo (budget mode)")
-        else:
-            model = "gpt-5-2025-08-07"  # Latest GPT-5 model
-            max_tokens = None  # No limit - let GPT-5 use its full 128k output capacity
-            logger.info(f"Using {model} with unlimited output")
-        
-        # Enhanced prompt for GPT-5's superior reasoning capabilities
-        prompt = f"""
-        You are a world-class pitch deck consultant who has helped startups raise over $10B in funding.
-        Use your advanced reasoning capabilities to create the MOST COMPREHENSIVE, INVESTOR-READY pitch deck possible.
-        
-        Company Details:
-        - Company Name: {request.company_name}
-        - Industry: {request.industry}
-        - Funding Stage: {request.funding_stage}
-        - Team Size: {request.team_size or 'Not specified'}
-        - Current Traction: {request.current_traction or 'Early stage'}
-        - Target Investors: {request.target_investors or 'Tier 1 VCs'}
-        
-        Core Value Proposition:
-        PROBLEM: {request.problem}
-        SOLUTION: {request.solution}
-        
-        REASONING INSTRUCTIONS:
-        1. First, analyze the market dynamics and competitive landscape
-        2. Calculate realistic financial projections based on industry benchmarks
-        3. Develop a compelling narrative arc throughout the deck
-        4. Ensure each slide builds on the previous one
-        5. Include specific metrics, data points, and evidence
-        6. Create content that addresses likely investor concerns preemptively
-        
-        Generate an EXHAUSTIVE pitch deck with these slides:
-        
-        1. TITLE SLIDE: 
-           - Company name, tagline, logo description
-           - Contact details, website, location
-           - Founding date and current stage
-        
-        2. PROBLEM (make it visceral and urgent):
-           - Primary problem with specific cost to businesses/consumers
-           - Secondary problems that compound the issue
-           - Real customer quotes demonstrating pain (create realistic examples)
-           - Market inefficiencies currently being exploited
-           - Why this problem exists and persists
-           - Consequences of not solving it
-        
-        3. SOLUTION (show breakthrough innovation):
-           - Core solution with technical differentiation
-           - How it works (detailed but accessible explanation)
-           - Key features and benefits matrix
-           - Technology stack and proprietary elements
-           - Implementation timeline for customers
-           - ROI calculation for customers
-        
-        4. MARKET OPPORTUNITY (be extremely detailed):
-           - TAM: Global market with breakdown by region (NA, EU, APAC, LATAM, MEA)
-           - TAM calculation methodology with sources
-           - SAM: Addressable segments with rationale
-           - SOM: 5-year capture plan with specific milestones
-           - Market growth drivers (regulatory, technological, social)
-           - Market timing analysis - why now?
-           - Adjacent markets for expansion
-        
-        5. BUSINESS MODEL (show path to $1B):
-           - Revenue streams with pricing for each tier
-           - Customer segmentation and pricing strategy
-           - Sales model (self-serve, inside sales, enterprise)
-           - Customer acquisition strategy and channels
-           - Unit economics deep dive:
-             * CAC by channel
-             * LTV by segment  
-             * Gross margins
-             * Contribution margins
-             * Payback period
-           - Network effects and virality coefficients
-           - Expansion revenue strategy
-        
-        6. TRACTION & VALIDATION (prove product-market fit):
-           - Monthly metrics for last 12 months (or projected)
-           - Customer growth curve
-           - Revenue growth with MRR/ARR progression
-           - Key metrics: NPS, DAU/MAU, retention, churn
-           - Customer logos and case studies
-           - Testimonials with specific results
-           - Product development milestones
-           - Awards and recognition
-           - Media coverage and PR wins
-        
-        7. COMPETITION & MOAT (show defensibility):
-           - Competitive matrix (10+ competitors)
-           - Feature comparison table
-           - Pricing comparison
-           - Your unfair advantages (list 5+)
-           - Barriers to entry you're creating
-           - Network effects and lock-in
-           - IP and patents (filed or planned)
-           - Why competitors can't copy you
-           - M&A opportunities
-        
-        8. TEAM (prove you can execute):
-           - Founders: Background, achievements, why them
-           - Key employees with notable backgrounds
-           - Advisory board with their contributions
-           - Board members (if any)
-           - Key hires planned next 12 months
-           - Culture and values
-           - Why this team wins
-        
-        9. FINANCIAL PROJECTIONS (be aggressive but defensible):
-           - 5-year P&L with monthly detail for Year 1
-           - Revenue build (bottom-up model)
-           - Cost structure breakdown
-           - Hiring plan by department
-           - Key assumptions clearly stated
-           - Sensitivity analysis
-           - Break-even timeline
-           - Cash flow projections
-           - Scenario planning (base, upside, downside)
-        
-        10. THE ASK (be specific and ambitious):
-           - Funding amount with exact figure
-           - Valuation expectations (pre/post money)
-           - Use of funds with percentages:
-             * Product development
-             * Sales & Marketing  
-             * Operations
-             * Team expansion
-             * Working capital
-           - 18-month milestone plan with KPIs
-           - Expected next round timing and size
-           - Strategic investors desired
-           - Exit strategy and comparables
-        
-        11. APPENDIX (bonus comprehensive content):
-           - Technical architecture diagram
-           - Go-to-market playbook
-           - Customer journey map
-           - Partnership pipeline
-           - PR and marketing strategy
-           - Risk matrix and mitigation
-           - Detailed competitor analysis
-           - Customer testimonial videos (scripts)
-           - Demo screenshots and flows
-           - Press quotes and coverage
-        
-        Make every slide EXCEPTIONAL with:
-        - Specific numbers (not ranges)
-        - Real company names as examples
-        - Industry-specific terminology
-        - Compelling data visualizations described
-        - Emotional hooks and storytelling
-        - Clear calls to action
-        
-        Use your FULL REASONING CAPABILITIES to make this the best pitch deck ever created.
-        Generate AS MUCH DETAIL AS POSSIBLE - use the full 128k output token capacity if needed.
-        
-        Return as comprehensive JSON with all content.
-        """
-        
-        try:
-            response = ai_client.chat.completions.create(
-                model=model,
-                messages=[
-                    {
-                        "role": "system", 
-                        "content": """You are the world's best pitch deck consultant with experience raising billions.
-                        Use your advanced reasoning to create comprehensive, detailed, investor-ready content.
-                        Do not hold back on detail - use as many tokens as needed to be thorough."""
+        async function generatePitch() {
+            const formData = {
+                company_name: document.getElementById('companyName').value,
+                industry: document.getElementById('industry').value,
+                problem: document.getElementById('problem').value,
+                solution: document.getElementById('solution').value,
+                funding_stage: document.getElementById('fundingStage').value,
+                traction: document.getElementById('traction').value
+            };
+            
+            const btn = document.getElementById('generateBtn');
+            const output = document.getElementById('outputContent');
+            const actionButtons = document.getElementById('actionButtons');
+            
+            btn.disabled = true;
+            btn.textContent = 'Generating...';
+            actionButtons.style.display = 'none';
+            
+            output.innerHTML = '<div class="loading"><div class="spinner"></div><p>Creating your sales pitch...</p></div>';
+            
+            try {
+                const response = await fetch('/api/generate-pitch', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
                     },
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.7,
-                max_tokens=max_tokens,  # None for GPT-5 = unlimited
-                response_format={"type": "json_object"}
-            )
-            
-            content = json.loads(response.choices[0].message.content)
-            
-            # Log token usage for GPT-5
-            if hasattr(response, 'usage'):
-                logger.info(f"GPT-5 token usage - Input: {response.usage.prompt_tokens}, "
-                          f"Output: {response.usage.completion_tokens}, "
-                          f"Reasoning: {getattr(response.usage, 'reasoning_tokens', 'N/A')}")
-            
-            logger.info(f"Successfully generated comprehensive pitch deck with {model}")
-            return AIPitchGenerator.format_pitch_response(content, request)
-            
-        except Exception as e:
-            logger.error(f"OpenAI generation failed: {e}")
-            # Fallback to GPT-3.5 if GPT-5 fails
-            if model != "gpt-3.5-turbo":
-                logger.info("Falling back to GPT-3.5-turbo")
-                Config.USE_BUDGET_MODEL = True
-                return AIPitchGenerator.generate_with_openai(request)
-            return AIPitchGenerator.generate_mock_pitch(request)
-    
-    @staticmethod
-    def generate_with_anthropic(request: PitchRequest) -> Dict[str, Any]:
-        """Generate pitch deck using Anthropic Claude"""
-        if not ai_client:
-            return AIPitchGenerator.generate_mock_pitch(request)
-        
-        prompt = f"""
-        Create a compelling investor pitch deck for {request.company_name}, a {request.funding_stage}-stage {request.industry} startup.
-        
-        Problem: {request.problem}
-        Solution: {request.solution}
-        
-        Generate content for all 10 standard pitch deck slides. Return as JSON.
-        """
-        
-        try:
-            response = ai_client.messages.create(
-                model="claude-3-opus-20240229",
-                max_tokens=2000,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            
-            content = json.loads(response.content[0].text)
-            return AIPitchGenerator.format_pitch_response(content, request)
-            
-        except Exception as e:
-            logger.error(f"Anthropic generation failed: {e}")
-            return AIPitchGenerator.generate_mock_pitch(request)
-    
-    @staticmethod
-    def generate_mock_pitch(request: PitchRequest) -> Dict[str, Any]:
-        """Generate mock pitch deck for testing/fallback"""
-        
-        # Funding stage specifics
-        funding_amounts = {
-            "pre-seed": "$500K - $1M",
-            "seed": "$2M - $5M",
-            "series-a": "$10M - $15M",
-            "series-b": "$20M - $50M",
-            "series-c": "$50M+"
-        }
-        
-        funding_amount = funding_amounts.get(request.funding_stage, "$5M")
-        
-        # Industry-specific TAM
-        tam_by_industry = {
-            "fintech": "$1.5T",
-            "healthcare": "$3.6T",
-            "saas": "$200B",
-            "ecommerce": "$5.5T",
-            "edtech": "$350B",
-            "ai": "$150B"
-        }
-        
-        tam = tam_by_industry.get(request.industry.lower(), "$100B")
-        
-        return {
-            "tagline": f"Revolutionizing {request.industry} through innovative technology",
-            
-            "title": f"""{request.company_name}
-
-{f"Revolutionizing {request.industry} through innovative technology"}
-
-Investor Deck | {request.funding_stage.title()} Round
-{datetime.now().strftime('%B %Y')}""",
-            
-            "problem": f"""{request.problem}
-
-Current Pain Points:
-â€¢ Inefficient legacy systems costing businesses millions annually
-â€¢ 73% of {request.industry} professionals report daily frustrations
-â€¢ Average time wasted: 4.5 hours per week per employee
-â€¢ Customer satisfaction scores declining 15% YoY
-â€¢ No comprehensive solution exists in the market""",
-            
-            "solution": f"""{request.solution}
-
-Our Approach:
-â€¢ AI-powered automation reducing manual work by 80%
-â€¢ Seamless integration with existing workflows
-â€¢ Real-time analytics and insights dashboard
-â€¢ Mobile-first design for modern teams
-â€¢ Enterprise-grade security and compliance
-
-Results: 10x faster, 50% cost reduction, 95% user satisfaction""",
-            
-            "market": f"""Market Opportunity
-
-ðŸ“Š Total Addressable Market (TAM): {tam}
-   - Growing at 25% CAGR
-   - Digital transformation driving demand
-
-ðŸŽ¯ Serviceable Addressable Market (SAM): ${tam[1:-1]}B
-   - Focus on mid-market and enterprise
-   - {request.industry} segment specifically
-
-ðŸš€ Serviceable Obtainable Market (SOM): $500M
-   - Realistic 5-year target
-   - 1% market share achievable
-
-Key Drivers:
-â€¢ Regulatory changes forcing modernization
-â€¢ Remote work acceleration
-â€¢ Gen Z entering workforce""",
-            
-            "business_model": f"""Revenue Model
-
-ðŸ’° Subscription (SaaS)
-   â€¢ Starter: $99/month (freelancers)
-   â€¢ Professional: $499/month (small teams)
-   â€¢ Enterprise: $2,999/month (large orgs)
-   â€¢ Custom pricing for 100+ seats
-
-Additional Revenue Streams:
-â€¢ Implementation services: $10-50K
-â€¢ API access: Usage-based pricing
-â€¢ Premium support: 20% of license fee
-â€¢ Marketplace commissions: 15%
-
-Unit Economics:
-â€¢ CAC: $2,000 | LTV: $45,000 | LTV/CAC: 22.5x
-â€¢ Gross Margin: 82%
-â€¢ Payback Period: 8 months""",
-            
-            "traction": f"""Traction & Validation
-
-ðŸ“ˆ Growth Metrics:
-â€¢ 10,000+ users across 500+ companies
-â€¢ $2.5M ARR (growing 30% MoM)
-â€¢ 120% net revenue retention
-â€¢ NPS Score: 72
-â€¢ 5-min average time to value
-
-ðŸ† Key Achievements:
-â€¢ Product Hunt #1 Product of the Day
-â€¢ SOC 2 Type II certified
-â€¢ 3 Fortune 500 pilots in progress
-â€¢ Strategic partnership with Microsoft
-â€¢ 50+ 5-star reviews on G2
-
-ðŸ“Š Usage Stats:
-â€¢ 1M+ transactions processed monthly
-â€¢ 99.99% uptime over last 12 months
-â€¢ 3-minute average response time""",
-            
-            "competition": f"""Competitive Landscape
-
-Direct Competitors:
-ðŸ”´ Legacy Corp ($2B valuation)
-   - Strength: Market share (35%)
-   - Weakness: Outdated tech, poor UX
-   - Our advantage: 10x faster, 50% cheaper
-
-ðŸŸ¡ StartupX (Series B, $150M raised)
-   - Strength: Strong marketing
-   - Weakness: Limited features
-   - Our advantage: Complete platform
-
-ðŸ”µ BigTech's Solution
-   - Strength: Brand recognition
-   - Weakness: Not specialized
-   - Our advantage: Industry focus
-
-Competitive Advantages:
-âœ… Proprietary AI technology (3 patents pending)
-âœ… 5x faster implementation
-âœ… 50% lower TCO
-âœ… Best-in-class user experience
-âœ… Only solution with full mobile support""",
-            
-            "team": f"""Leadership Team
-
-ðŸ‘¤ CEO & Co-founder
-â€¢ 10+ years in {request.industry}
-â€¢ Previously VP at Fortune 500
-â€¢ Scaled 2 startups to exit
-â€¢ Harvard MBA
-
-ðŸ‘¤ CTO & Co-founder
-â€¢ Ex-Google/Amazon engineer
-â€¢ 15+ years building scalable systems
-â€¢ PhD Computer Science, Stanford
-â€¢ 20+ patents in AI/ML
-
-ðŸ‘¤ VP Sales
-â€¢ Built $100M+ revenue teams
-â€¢ Former CRO at unicorn startup
-â€¢ Deep industry relationships
-
-ðŸ‘¤ VP Product
-â€¢ Led product at 3 successful startups
-â€¢ Human-centered design expert
-â€¢ Previously at Apple
-
-Advisory Board:
-â€¢ Former CEO of [Industry Leader]
-â€¢ Partner at Sequoia Capital
-â€¢ Professor of AI at MIT""",
-            
-            "financials": f"""Financial Projections
-
-Current Status:
-â€¢ Monthly Burn: $250K
-â€¢ Runway: 18 months
-â€¢ Path to profitability: Q3 2025
-
-3-Year Projections:
-         Year 1    Year 2     Year 3
-Revenue:  $5M      $22M       $65M
-Gross:    $4.1M    $18M       $53M
-EBITDA:   -$3M     $2M        $15M
-Customers: 50      250        800
-
-Key Assumptions:
-â€¢ 15% monthly growth rate Year 1
-â€¢ 80% gross margins maintained
-â€¢ Sales efficiency improves 20% YoY
-â€¢ Churn remains below 5% annually
-
-Use of Funds:
-â€¢ Product Development: 40%
-â€¢ Sales & Marketing: 35%
-â€¢ Operations: 15%
-â€¢ General & Admin: 10%""",
-            
-            "ask": f"""The Ask
-
-ðŸŽ¯ Raising: {funding_amount} {request.funding_stage.title()} Round
-
-Use of Funds:
-â€¢ Engineering: Hire 10 engineers to accelerate product roadmap
-â€¢ Sales: Build enterprise sales team (8 reps)
-â€¢ Marketing: Scale demand generation and brand
-â€¢ Operations: Strengthen infrastructure for scale
-
-Milestones (Next 18 Months):
-âœ“ Launch AI-powered analytics suite (Q1)
-âœ“ Expand to 3 new verticals (Q2)
-âœ“ Achieve $10M ARR (Q3)
-âœ“ Close 5 enterprise accounts (Q4)
-âœ“ International expansion (Q1 Y2)
-âœ“ Series {chr(ord(request.funding_stage[-1]) + 1).upper() if request.funding_stage.startswith('series') else 'A'} ready
-
-Why Now:
-â€¢ Market inflection point
-â€¢ Proven product-market fit
-â€¢ Team ready to scale
-â€¢ Competition vulnerable
-
-Contact: founders@{request.company_name.lower().replace(' ', '')}.com"""
-        }
-    
-    @staticmethod
-    def format_pitch_response(content: Dict, request: PitchRequest) -> Dict[str, Any]:
-        """Format AI response into consistent structure"""
-        return {
-            "tagline": content.get("tagline", f"Transforming {request.industry}"),
-            "title": content.get("title", f"{request.company_name} Pitch Deck"),
-            "problem": content.get("problem", request.problem),
-            "solution": content.get("solution", request.solution),
-            "market": content.get("market", "Market opportunity analysis"),
-            "business_model": content.get("business_model", "Subscription-based SaaS model"),
-            "traction": content.get("traction", "Early traction and validation"),
-            "competition": content.get("competition", "Competitive landscape"),
-            "team": content.get("team", "Experienced leadership team"),
-            "financials": content.get("financials", "Financial projections"),
-            "ask": content.get("ask", f"Raising {request.funding_stage} round")
-        }
-    
-    @classmethod
-    def generate(cls, request: PitchRequest) -> Dict[str, Any]:
-        """Main generation method"""
-        if Config.AI_PROVIDER == 'openai':
-            return cls.generate_with_openai(request)
-        elif Config.AI_PROVIDER == 'anthropic':
-            return cls.generate_with_anthropic(request)
-        else:
-            return cls.generate_mock_pitch(request)
-
-# Content Extractor
-class ContentExtractor:
-    """Extract content from various file formats"""
-    
-    @staticmethod
-    def extract_from_pdf(content: bytes) -> str:
-        """Extract text from PDF"""
-        if not PyPDF2:
-            return ""
-        
-        try:
-            pdf_file = io.BytesIO(content)
-            pdf_reader = PyPDF2.PdfReader(pdf_file)
-            text = ""
-            for page in pdf_reader.pages:
-                text += page.extract_text() + "\n"
-            return text
-        except Exception as e:
-            logger.error(f"PDF extraction error: {e}")
-            return ""
-    
-    @staticmethod
-    def extract_from_docx(content: bytes) -> str:
-        """Extract text from DOCX"""
-        if not Document:
-            return ""
-        
-        try:
-            doc = Document(io.BytesIO(content))
-            return "\n".join([paragraph.text for paragraph in doc.paragraphs])
-        except Exception as e:
-            logger.error(f"DOCX extraction error: {e}")
-            return ""
-    
-    @staticmethod
-    def extract_from_text(content: bytes) -> str:
-        """Extract text from plain text file"""
-        try:
-            return content.decode('utf-8', errors='ignore')
-        except Exception as e:
-            logger.error(f"Text extraction error: {e}")
-            return ""
-    
-    @classmethod
-    def extract(cls, content: bytes, file_type: str) -> str:
-        """Main extraction method"""
-        if 'pdf' in file_type.lower():
-            return cls.extract_from_pdf(content)
-        elif 'docx' in file_type.lower() or 'word' in file_type.lower():
-            return cls.extract_from_docx(content)
-        else:
-            return cls.extract_from_text(content)
-
-# PowerPoint Exporter
-class PowerPointExporter:
-    """Export pitch deck to PowerPoint format"""
-    
-    @staticmethod
-    def create_presentation(pitch_data: Dict) -> bytes:
-        """Create PowerPoint presentation"""
-        if not Presentation:
-            logger.warning("python-pptx not installed")
-            return None
-        
-        try:
-            from pptx import Presentation
-            from pptx.util import Inches, Pt
-            from pptx.enum.text import PP_ALIGN
-            
-            prs = Presentation()
-            
-            # Set slide size to 16:9
-            prs.slide_width = Inches(10)
-            prs.slide_height = Inches(5.625)
-            
-            slides_data = pitch_data.get('slides', [])
-            
-            for slide_data in slides_data:
-                # Add slide with title and content layout
-                slide_layout = prs.slide_layouts[1]  # Title and Content
-                slide = prs.slides.add_slide(slide_layout)
+                    body: JSON.stringify(formData)
+                });
                 
-                # Set title
-                title = slide.shapes.title
-                title.text = slide_data.get('title', 'Slide Title')
+                const data = await response.json();
                 
-                # Set content
-                content = slide.placeholders[1]
-                content.text = slide_data.get('content', '')
-                
-                # Format text
-                for paragraph in content.text_frame.paragraphs:
-                    paragraph.font.size = Pt(18)
+                if (data.error) {
+                    output.innerHTML = `<div class="empty-state"><h3>Error</h3><p>${data.error}</p></div>`;
+                } else {
+                    displayPitch(data);
+                    actionButtons.style.display = 'flex';
+                }
+            } catch (error) {
+                output.innerHTML = `<div class="empty-state"><h3>Error</h3><p>Failed to generate pitch. Please try again.</p></div>`;
+                console.error('Error:', error);
+            }
             
-            # Save to bytes
-            ppt_bytes = io.BytesIO()
-            prs.save(ppt_bytes)
-            ppt_bytes.seek(0)
+            btn.disabled = false;
+            btn.textContent = 'Generate Sales Pitch';
+        }
+        
+        function displayPitch(data) {
+            const output = document.getElementById('outputContent');
             
-            return ppt_bytes.getvalue()
+            let html = '<div class="pitch-document">';
             
-        except Exception as e:
-            logger.error(f"PowerPoint export error: {e}")
-            return None
+            // Title
+            html += `<h1>${data.company_name || 'Company'} - Investment Opportunity</h1>`;
+            
+            // Executive Summary
+            if (data.executive_summary) {
+                html += '<h2>Executive Summary</h2>';
+                html += formatContent(data.executive_summary);
+            }
+            
+            // The Opportunity
+            if (data.opportunity) {
+                html += '<h2>The Opportunity</h2>';
+                html += formatContent(data.opportunity);
+            }
+            
+            // Why Us / Why Now
+            if (data.why_us) {
+                html += '<h2>Why ' + (data.company_name || 'Us') + '</h2>';
+                html += formatContent(data.why_us);
+            }
+            
+            // Contact
+            if (data.contact) {
+                html += '<div class="highlight">';
+                html += '<h3>Next Steps</h3>';
+                html += formatContent(data.contact);
+                html += '</div>';
+            }
+            
+            html += '</div>';
+            
+            output.innerHTML = html;
+        }
+        
+        function formatContent(text) {
+            // Convert line breaks to paragraphs
+            let formatted = text.split('\\n\\n').map(para => {
+                // Check if it's a bullet point list
+                if (para.includes('•') || para.includes('-')) {
+                    const items = para.split('\\n').filter(item => item.trim());
+                    return '<ul>' + items.map(item => 
+                        '<li>' + item.replace(/^[•\-]\s*/, '') + '</li>'
+                    ).join('') + '</ul>';
+                }
+                return '<p>' + para.replace(/\\n/g, ' ') + '</p>';
+            }).join('');
+            
+            return formatted;
+        }
+        
+        function copyPitch() {
+            const pitchElement = document.querySelector('.pitch-document');
+            if (pitchElement) {
+                const text = pitchElement.innerText;
+                navigator.clipboard.writeText(text).then(() => {
+                    alert('Pitch copied to clipboard!');
+                });
+            }
+        }
+        
+        function printPitch() {
+            window.print();
+        }
+    </script>
+</body>
+</html>
+"""
 
-# API Routes
 @app.route('/')
 def index():
-    """Serve the pitch deck builder frontend"""
-    frontend_path = Path(__file__).parent.parent / 'frontend' / 'pitch_deck_builder.html'
-    
-    try:
-        if frontend_path.exists():
-            with open(frontend_path, 'r', encoding='utf-8') as f:
-                return f.read(), 200, {'Content-Type': 'text/html'}
-    except Exception as e:
-        logger.error(f"Error serving frontend: {e}")
-    
-    # Fallback HTML
-    return """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Pitch Deck Builder API</title>
-        <style>
-            body { 
-                font-family: Arial, sans-serif; 
-                max-width: 800px; 
-                margin: 50px auto; 
-                padding: 20px;
-                background: #0a0a0a;
-                color: #fff;
-            }
-            h1 { color: #ff6600; }
-            .endpoint { 
-                background: #1a1a1a; 
-                padding: 15px; 
-                margin: 10px 0; 
-                border-radius: 5px;
-                border-left: 4px solid #ff6600;
-            }
-            code { 
-                background: #333; 
-                padding: 2px 5px; 
-                border-radius: 3px; 
-            }
-        </style>
-    </head>
-    <body>
-        <h1>ðŸš€ Pitch Deck Builder API</h1>
-        <p>The API is running! Frontend file not found at expected location.</p>
-        
-        <h2>Available Endpoints:</h2>
-        <div class="endpoint">
-            <strong>POST</strong> <code>/api/generate-pitch</code> - Generate AI pitch deck
-        </div>
-        <div class="endpoint">
-            <strong>POST</strong> <code>/api/extract-pitch</code> - Extract content from documents
-        </div>
-        <div class="endpoint">
-            <strong>POST</strong> <code>/api/analyze-pitch</code> - Analyze existing pitch
-        </div>
-        <div class="endpoint">
-            <strong>POST</strong> <code>/api/export/pptx</code> - Export as PowerPoint
-        </div>
-        <div class="endpoint">
-            <strong>POST</strong> <code>/api/export/pdf</code> - Export as PDF
-        </div>
-        <div class="endpoint">
-            <strong>GET</strong> <code>/health</code> - Health check
-        </div>
-    </body>
-    </html>
-    """, 200
+    """Serve the main application"""
+    return Response(HTML_TEMPLATE, mimetype='text/html')
 
-@app.route('/health', methods=['GET'])
+@app.route('/health')
 def health_check():
     """Health check endpoint"""
     return jsonify({
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
-        "ai_provider": Config.AI_PROVIDER,
+        "ai_provider": "openai",
         "ai_available": ai_client is not None,
-        "pdf_support": PyPDF2 is not None,
-        "docx_support": Document is not None,
-        "pptx_support": Presentation is not None
+        "model": Config.OPENAI_MODEL if not Config.USE_BUDGET_MODEL else "gpt-3.5-turbo"
     })
 
 @app.route('/api/generate-pitch', methods=['POST'])
-@limiter.limit("10 per hour")
 def generate_pitch():
-    """Generate complete pitch deck using AI"""
+    """Generate a 2-3 page sales pitch"""
     try:
         data = request.json
         
         # Validate required fields
-        if not data.get('company_name') or not data.get('problem') or not data.get('solution'):
-            return jsonify({"error": "Company name, problem, and solution are required"}), 400
+        required_fields = ['company_name', 'industry', 'problem', 'solution']
+        if not all(data.get(field) for field in required_fields):
+            return jsonify({"error": "Missing required fields"}), 400
         
-        # Create request object
-        pitch_request = PitchRequest(
-            company_name=data.get('company_name'),
-            industry=data.get('industry', 'technology'),
-            problem=data.get('problem'),
-            solution=data.get('solution'),
-            funding_stage=data.get('funding_stage', 'seed'),
-            target_investors=data.get('target_investors'),
-            team_size=data.get('team_size'),
-            current_traction=data.get('current_traction')
-        )
+        # Select model
+        model = "gpt-3.5-turbo" if Config.USE_BUDGET_MODEL else Config.OPENAI_MODEL
         
-        # Generate pitch content
-        pitch_content = AIPitchGenerator.generate(pitch_request)
+        # Create the prompt for a clean 2-3 page pitch
+        prompt = f"""
+        Create a compelling 2-3 page sales pitch for investors. Write in a professional, confident tone.
         
-        return jsonify(pitch_content)
-    
-    except Exception as e:
-        logger.error(f"Pitch generation error: {e}")
-        return jsonify({"error": "Failed to generate pitch deck"}), 500
-
-@app.route('/api/extract-pitch', methods=['POST'])
-@limiter.limit("10 per hour")
-def extract_pitch_content():
-    """Extract and structure content from uploaded documents"""
-    try:
-        data = request.json
-        content = data.get('content', '')
-        file_count = data.get('fileCount', 1)
+        Company Information:
+        - Company Name: {data.get('company_name')}
+        - Industry: {data.get('industry')}
+        - Funding Stage: {data.get('funding_stage', 'seed')}
+        - Current Traction: {data.get('traction', 'Early stage, building momentum')}
         
-        if not content:
-            return jsonify({"error": "No content provided"}), 400
+        Core Value Proposition:
+        - Problem: {data.get('problem')}
+        - Solution: {data.get('solution')}
         
-        # Use AI to extract structured pitch content
-        extracted_data = extract_pitch_with_ai(content)
+        Create a pitch with EXACTLY these 3 sections:
         
-        return jsonify(extracted_data)
-    
-    except Exception as e:
-        logger.error(f"Content extraction error: {e}")
-        return jsonify({"error": "Failed to extract content"}), 500
-
-def extract_pitch_with_ai(content: str) -> Dict[str, Any]:
-    """Extract pitch deck content using AI"""
-    
-    if ai_client and Config.AI_PROVIDER == 'openai':
-        try:
-            prompt = f"""
-            Extract pitch deck information from this content and structure it for investor slides:
-            
-            {content[:3000]}
-            
-            Return JSON with:
-            - company: object with name, tagline, website, email
-            - slides: array of objects with type, title, and content
-            
-            Identify and extract:
-            - Company information
-            - Problem statement
-            - Solution description
-            - Market size/opportunity
-            - Business model
-            - Traction metrics
-            - Team information
-            - Financial data
-            - Funding requirements
-            """
-            
-            response = ai_client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": "Extract and structure pitch deck content from documents."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3,
-                max_tokens=1500,
-                response_format={"type": "json_object"}
-            )
-            
-            return json.loads(response.choices[0].message.content)
-            
-        except Exception as e:
-            logger.error(f"AI extraction failed: {e}")
-    
-    # Fallback: Basic extraction
-    return {
-        "company": {
-            "name": extract_company_name(content),
-            "tagline": "Extracted from documents",
-            "website": extract_url(content),
-            "email": extract_email(content)
-        },
-        "slides": [
-            {"type": "custom", "title": "Extracted Content", "content": content[:1000]}
-        ]
-    }
-
-def extract_company_name(content: str) -> str:
-    """Extract company name from content"""
-    lines = content.split('\n')
-    for line in lines[:10]:  # Check first 10 lines
-        if len(line) > 2 and len(line) < 50 and not any(c in line for c in ['@', 'http', '.']):
-            return line.strip()
-    return "Company Name"
-
-def extract_url(content: str) -> str:
-    """Extract URL from content"""
-    url_pattern = r'https?://[^\s]+'
-    match = re.search(url_pattern, content)
-    return match.group() if match else ""
-
-def extract_email(content: str) -> str:
-    """Extract email from content"""
-    email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
-    match = re.search(email_pattern, content)
-    return match.group() if match else ""
-
-@app.route('/api/analyze-pitch', methods=['POST'])
-@limiter.limit("5 per hour")
-def analyze_pitch():
-    """Analyze and score an existing pitch deck"""
-    try:
-        data = request.json
-        slides = data.get('slides', [])
+        1. EXECUTIVE SUMMARY (200-250 words)
+        Start with a powerful one-sentence description of what the company does.
+        Then cover:
+        - The urgent problem we solve and why it matters now
+        - Our unique solution and competitive advantage
+        - Current traction and momentum
+        - The funding we're raising and what we'll achieve with it
         
-        if not slides:
-            return jsonify({"error": "No slides provided"}), 400
+        2. THE OPPORTUNITY (400-500 words)
+        Structure this section with clear sub-points:
         
-        # Analyze pitch quality
-        analysis = analyze_pitch_quality(slides)
+        The Problem:
+        - Expand on the problem with specific pain points
+        - Include market inefficiencies and costs to businesses
+        - Why existing solutions fall short
         
-        return jsonify(analysis)
-    
-    except Exception as e:
-        logger.error(f"Pitch analysis error: {e}")
-        return jsonify({"error": "Failed to analyze pitch"}), 500
-
-def analyze_pitch_quality(slides: List[Dict]) -> Dict[str, Any]:
-    """Analyze pitch deck quality and completeness"""
-    
-    # Check for essential slides
-    slide_types = [slide.get('type', '') for slide in slides]
-    
-    essential_slides = ['problem', 'solution', 'market', 'business-model', 'team', 'ask']
-    missing_slides = [s for s in essential_slides if s not in slide_types]
-    
-    # Calculate scores
-    completeness_score = (len(essential_slides) - len(missing_slides)) / len(essential_slides) * 100
-    
-    # Analyze content quality
-    total_content_length = sum(len(slide.get('content', '')) for slide in slides)
-    avg_content_length = total_content_length / len(slides) if slides else 0
-    
-    quality_score = min(100, (avg_content_length / 200) * 100)  # Assume 200 chars is good
-    
-    # Generate recommendations
-    recommendations = []
-    
-    if missing_slides:
-        recommendations.append(f"Add missing slides: {', '.join(missing_slides)}")
-    
-    if avg_content_length < 100:
-        recommendations.append("Add more detail to your slides")
-    
-    if 'traction' not in slide_types:
-        recommendations.append("Include traction metrics to show validation")
-    
-    if 'financials' not in slide_types:
-        recommendations.append("Add financial projections")
-    
-    # Overall score
-    overall_score = (completeness_score + quality_score) / 2
-    
-    return {
-        "overall_score": round(overall_score, 1),
-        "completeness_score": round(completeness_score, 1),
-        "quality_score": round(quality_score, 1),
-        "slide_count": len(slides),
-        "missing_slides": missing_slides,
-        "recommendations": recommendations,
-        "strengths": identify_strengths(slides),
-        "verdict": "Ready to pitch!" if overall_score > 80 else "Needs improvement"
-    }
-
-def identify_strengths(slides: List[Dict]) -> List[str]:
-    """Identify strengths in the pitch deck"""
-    strengths = []
-    
-    slide_types = [slide.get('type', '') for slide in slides]
-    
-    if 'problem' in slide_types and 'solution' in slide_types:
-        strengths.append("Clear problem-solution fit")
-    
-    if 'team' in slide_types:
-        strengths.append("Team credentials included")
-    
-    if 'market' in slide_types:
-        strengths.append("Market opportunity defined")
-    
-    if len(slides) >= 10:
-        strengths.append("Comprehensive deck")
-    
-    return strengths
-
-@app.route('/api/export/pptx', methods=['POST'])
-@limiter.limit("20 per hour")
-def export_powerpoint():
-    """Export pitch deck as PowerPoint"""
-    try:
-        data = request.json
+        Our Solution:
+        - How we solve it uniquely
+        - Key features and benefits
+        - Why our approach is 10x better
         
-        if not data.get('slides'):
-            return jsonify({"error": "No slides provided"}), 400
+        Market Opportunity:
+        - TAM (Total Addressable Market) in billions
+        - Growth rate and market drivers
+        - Our serviceable obtainable market
         
-        # Create PowerPoint
-        pptx_bytes = PowerPointExporter.create_presentation(data)
+        Business Model:
+        - How we make money
+        - Pricing strategy
+        - Unit economics and margins
         
-        if not pptx_bytes:
-            return jsonify({"error": "PowerPoint export not available. Install python-pptx."}), 503
+        3. WHY {data.get('company_name').upper()} (250-300 words)
         
-        return send_file(
-            io.BytesIO(pptx_bytes),
-            mimetype='application/vnd.openxmlformats-officedocument.presentationml.presentation',
-            as_attachment=True,
-            download_name=f"pitch_deck_{datetime.now().strftime('%Y%m%d')}.pptx"
-        )
-    
-    except Exception as e:
-        logger.error(f"PowerPoint export error: {e}")
-        return jsonify({"error": "Failed to export PowerPoint"}), 500
-
-@app.route('/api/export/pdf', methods=['POST'])
-@limiter.limit("20 per hour")
-def export_pdf():
-    """Export pitch deck as PDF"""
-    try:
-        data = request.json
-        slides = data.get('slides', [])
-        company_name = data.get('company', {}).get('name', 'Pitch Deck')
+        Traction & Validation:
+        - Current metrics and growth rate
+        - Key customers or partnerships
+        - Product-market fit indicators
         
-        # Generate HTML for PDF
-        html_content = generate_pitch_html(slides, company_name)
+        Our Team:
+        - 2-3 key team members with relevant backgrounds
+        - Why we're uniquely positioned to win
         
-        # Try to use WeasyPrint if available
-        try:
-            from weasyprint import HTML
-            pdf = HTML(string=html_content).write_pdf()
-            
-            return send_file(
-                io.BytesIO(pdf),
-                mimetype='application/pdf',
-                as_attachment=True,
-                download_name=f"pitch_deck_{datetime.now().strftime('%Y%m%d')}.pdf"
-            )
-        except ImportError:
-            # Fallback: return HTML for browser printing
-            return html_content, 200, {'Content-Type': 'text/html'}
-    
-    except Exception as e:
-        logger.error(f"PDF export error: {e}")
-        return jsonify({"error": "Failed to export PDF"}), 500
-
-def generate_pitch_html(slides: List[Dict], company_name: str) -> str:
-    """Generate HTML for pitch deck"""
-    
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <title>{company_name} - Pitch Deck</title>
-        <style>
-            @page {{ size: A4 landscape; margin: 0; }}
-            body {{ 
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
-                margin: 0;
-                padding: 0;
-                background: #0a0a0a;
-                color: #ffffff;
-            }}
-            .slide {{
-                width: 100%;
-                height: 100vh;
-                padding: 60px;
-                box-sizing: border-box;
-                display: flex;
-                flex-direction: column;
-                justify-content: center;
-                page-break-after: always;
-                background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%);
-            }}
-            .slide h1 {{
-                color: #ff6600;
-                font-size: 48px;
-                margin-bottom: 30px;
-                text-align: center;
-            }}
-            .slide h2 {{
-                color: #ff6600;
-                font-size: 36px;
-                margin-bottom: 30px;
-            }}
-            .slide p {{
-                font-size: 20px;
-                line-height: 1.8;
-                margin-bottom: 20px;
-            }}
-            .slide ul {{
-                font-size: 20px;
-                line-height: 2;
-                margin-left: 30px;
-            }}
-            .slide li {{
-                margin-bottom: 15px;
-            }}
-            @media print {{
-                .slide {{ height: 100vh; }}
-            }}
-        </style>
-    </head>
-    <body>
-    """
-    
-    for slide in slides:
-        content = slide.get('content', '').replace('\n', '<br>')
+        The Ask:
+        - Specific funding amount based on stage
+        - 3-4 concrete milestones for next 18 months
+        - Vision for the company's future
         
-        # Convert bullet points
-        if 'â€¢' in content:
-            lines = content.split('<br>')
-            formatted_lines = []
-            in_list = False
-            
-            for line in lines:
-                if line.strip().startswith('â€¢'):
-                    if not in_list:
-                        formatted_lines.append('<ul>')
-                        in_list = True
-                    formatted_lines.append(f"<li>{line.strip()[1:].strip()}</li>")
-                else:
-                    if in_list:
-                        formatted_lines.append('</ul>')
-                        in_list = False
-                    formatted_lines.append(f"<p>{line}</p>")
-            
-            if in_list:
-                formatted_lines.append('</ul>')
-            
-            content = ''.join(formatted_lines)
-        else:
-            content = f"<p>{content}</p>"
+        End with a compelling call to action.
         
-        html += f"""
-        <div class="slide">
-            <h2>{slide.get('title', 'Slide')}</h2>
-            {content}
-        </div>
+        Guidelines:
+        - Total length: 850-1050 words (2-3 pages)
+        - Use specific numbers and metrics
+        - Write in clear, concise paragraphs
+        - Avoid bullet points in the main text
+        - Be bold but realistic
+        - Focus on what makes this investment opportunity exceptional
+        
+        Return as JSON with keys: executive_summary, opportunity, why_us, contact, company_name
         """
-    
-    html += """
-    </body>
-    </html>
-    """
-    
-    return html
-
-@app.route('/api/templates', methods=['GET'])
-def get_templates():
-    """Get available pitch deck templates"""
-    return jsonify({
-        "templates": [
-            {
-                "id": "modern",
-                "name": "Modern",
-                "description": "Clean and bold design for tech startups"
-            },
-            {
-                "id": "minimal",
-                "name": "Minimal",
-                "description": "Simple and elegant for any industry"
-            },
-            {
-                "id": "startup",
-                "name": "Startup",
-                "description": "Vibrant and dynamic for early-stage companies"
+        
+        if ai_client:
+            try:
+                # Make API call to OpenAI
+                response = ai_client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {
+                            "role": "system", 
+                            "content": "You are a top-tier venture capital pitch consultant who has helped raise over $1B in funding. Write compelling, concise pitches that get investors excited."
+                        },
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.7,
+                    max_tokens=3000 if not Config.USE_BUDGET_MODEL else 2000,
+                    response_format={"type": "json_object"}
+                )
+                
+                result = json.loads(response.choices[0].message.content)
+                result['company_name'] = data.get('company_name')
+                
+                # Add contact section if not present
+                if 'contact' not in result:
+                    result['contact'] = f"Ready to join us in revolutionizing {data.get('industry')}? Let's discuss how {data.get('company_name')} can deliver exceptional returns for your portfolio. Contact our team to schedule a deep dive into our financials, product roadmap, and growth strategy."
+                
+                logger.info(f"✅ Generated pitch for {data.get('company_name')}")
+                return jsonify(result)
+                
+            except Exception as e:
+                logger.error(f"❌ OpenAI API error: {e}")
+                return jsonify({"error": "Failed to generate pitch. Please try again."}), 500
+        else:
+            # Fallback mock response for testing
+            logger.info("Using mock response (no API key)")
+            
+            funding_amounts = {
+                "pre-seed": "$500K",
+                "seed": "$2M",
+                "series-a": "$10M",
+                "series-b": "$30M"
             }
-        ],
-        "slide_types": [
-            "title", "problem", "solution", "market", "business-model",
-            "traction", "competition", "team", "financials", "ask", "custom"
-        ]
-    })
+            
+            funding = funding_amounts.get(data.get('funding_stage', 'seed'), '$2M')
+            
+            return jsonify({
+                "company_name": data.get('company_name'),
+                "executive_summary": f"""
+{data.get('company_name')} is revolutionizing {data.get('industry')} with an AI-powered platform that {data.get('solution')}. 
 
-@app.route('/api/suggestions/investor-questions', methods=['POST'])
-@limiter.limit("10 per hour")
-def suggest_investor_questions():
-    """Suggest potential investor questions based on pitch content"""
-    try:
-        data = request.json
-        industry = data.get('industry', '')
-        funding_stage = data.get('funding_stage', '')
-        
-        questions = get_investor_questions(industry, funding_stage)
-        
-        return jsonify({"questions": questions})
-    
+The {data.get('industry')} industry faces a critical challenge: {data.get('problem')}. This inefficiency costs businesses millions annually and hampers growth across the sector. Our solution leverages cutting-edge technology to deliver a 10x improvement in efficiency, reducing costs by 60% while improving outcomes.
+
+Since launching six months ago, we've acquired 50+ enterprise customers and are growing at 40% month-over-month. Our current annual recurring revenue has reached $1.2M with a clear path to $10M within 18 months. We're raising {funding} to accelerate product development, expand our sales team, and capture the massive market opportunity ahead of us.
+                """.strip(),
+                
+                "opportunity": f"""
+The Problem:
+{data.get('problem')} This isn't just an inconvenience—it's a massive drain on resources that affects thousands of companies globally. Current solutions are fragmented, expensive, and fail to address the root cause. Businesses are spending over $50B annually trying to work around these limitations, with most seeing minimal improvement.
+
+Our Solution:
+{data.get('company_name')} takes a fundamentally different approach. {data.get('solution')} Our platform integrates seamlessly with existing workflows while providing intelligent automation that learns and improves over time. Key capabilities include real-time analytics, predictive insights, and automated optimization that delivers immediate ROI.
+
+Market Opportunity:
+The {data.get('industry')} market represents a $75B total addressable market growing at 25% annually. Digital transformation and AI adoption are accelerating this growth, with enterprises actively seeking solutions like ours. Our serviceable addressable market is $10B, focusing on mid-market and enterprise customers who need sophisticated solutions. We project capturing 1% market share within 5 years, representing a $100M revenue opportunity.
+
+Business Model:
+We operate on a SaaS model with three tiers: Starter ($999/month), Professional ($4,999/month), and Enterprise (custom pricing starting at $15,000/month). Our gross margins are 82%, with a customer acquisition cost of $5,000 and lifetime value exceeding $150,000. The model is highly scalable with negative churn due to account expansion.
+                """.strip(),
+                
+                "why_us": f"""
+Traction & Validation:
+{data.get('traction', 'In just six months, we have achieved remarkable traction')}. Our net revenue retention rate of 140% demonstrates strong product-market fit. We've secured partnerships with three Fortune 500 companies and have a pipeline of 200+ qualified enterprise leads. Customer satisfaction scores average 9.2/10, with several clients reporting 300% ROI within the first quarter.
+
+Our Team:
+Our founding team brings deep domain expertise and a track record of success. Our CEO previously scaled a SaaS company from $0 to $50M ARR and successful exit. Our CTO led engineering at two unicorn startups and holds multiple patents in AI/ML. Our VP of Sales built and managed a 100+ person sales organization that generated $200M in annual revenue.
+
+The Ask:
+We're raising {funding} to fuel our next phase of growth. This investment will enable us to: (1) Expand our engineering team to accelerate product roadmap, (2) Build out our sales and customer success teams to capture demand, (3) Invest in strategic partnerships and channel development, and (4) Strengthen our market position before competitors emerge.
+
+With this funding, we'll achieve $10M ARR within 18 months and position {data.get('company_name')} as the category leader in {data.get('industry')} innovation.
+                """.strip(),
+                
+                "contact": f"Ready to learn more? Let's discuss how {data.get('company_name')} can deliver exceptional returns for your portfolio. Contact us at invest@{data.get('company_name').lower().replace(' ', '')}.com"
+            })
+            
     except Exception as e:
-        logger.error(f"Question suggestion error: {e}")
-        return jsonify({"error": "Failed to generate questions"}), 500
+        logger.error(f"❌ Error generating pitch: {e}")
+        return jsonify({"error": str(e)}), 500
 
-def get_investor_questions(industry: str, funding_stage: str) -> List[str]:
-    """Get common investor questions by stage and industry"""
-    
-    base_questions = [
-        "What's your customer acquisition cost and lifetime value?",
-        "How do you differentiate from competitors?",
-        "What's your go-to-market strategy?",
-        "How will you use the funding?",
-        "What are the key risks and how will you mitigate them?",
-        "What's your path to profitability?",
-        "How big is the total addressable market?",
-        "What's your unfair advantage?",
-        "Tell me about your team's background.",
-        "What are your unit economics?"
-    ]
-    
-    stage_questions = {
-        "pre-seed": [
-            "Have you validated the problem with potential customers?",
-            "What's your MVP timeline?",
-            "How much runway will this funding provide?"
-        ],
-        "seed": [
-            "What's your current MRR/ARR?",
-            "How many customers do you have?",
-            "What's your churn rate?"
-        ],
-        "series-a": [
-            "What's your sales efficiency ratio?",
-            "How will you scale the sales team?",
-            "What's your expansion revenue?"
-        ]
-    }
-    
-    industry_questions = {
-        "fintech": [
-            "How will you handle regulatory compliance?",
-            "What's your approach to security and fraud prevention?"
-        ],
-        "healthcare": [
-            "What's your FDA approval timeline?",
-            "How will you handle HIPAA compliance?"
-        ],
-        "saas": [
-            "What's your net revenue retention?",
-            "How sticky is your product?"
-        ]
-    }
-    
-    questions = base_questions.copy()
-    questions.extend(stage_questions.get(funding_stage, []))
-    questions.extend(industry_questions.get(industry.lower(), []))
-    
-    return questions[:15]  # Return top 15 questions
-
-@app.errorhandler(429)
-def ratelimit_handler(e):
-    """Handle rate limit exceeded"""
-    return jsonify({
-        "error": "Rate limit exceeded",
-        "message": str(e.description)
-    }), 429
+@app.errorhandler(404)
+def not_found(e):
+    """Handle 404 errors"""
+    return jsonify({"error": "Endpoint not found"}), 404
 
 @app.errorhandler(500)
-def internal_error(error):
-    """Handle internal server errors"""
-    logger.error(f"Internal error: {error}")
-    return jsonify({
-        "error": "Internal server error",
-        "message": "An unexpected error occurred"
-    }), 500
+def server_error(e):
+    """Handle 500 errors"""
+    logger.error(f"Server error: {e}")
+    return jsonify({"error": "Internal server error"}), 500
 
-# Main execution
 if __name__ == '__main__':
-    port = int(os.getenv('PORT', 5001))
-    debug = os.getenv('FLASK_ENV') == 'development'
-    
     print(f"""
-    ðŸš€ Pitch Deck Builder Backend Starting...
-    =========================================
-    Port: {port}
-    Debug: {debug}
-    AI Provider: {Config.AI_PROVIDER}
-    AI Available: {ai_client is not None}
+    {'='*50}
+    🚀 AI SALES PITCH GENERATOR
+    {'='*50}
     
-    Endpoints:
-    - GET  /                              - Frontend
-    - POST /api/generate-pitch            - Generate AI pitch deck
-    - POST /api/extract-pitch             - Extract from documents
-    - POST /api/analyze-pitch             - Analyze pitch quality
-    - POST /api/export/pptx               - Export PowerPoint
-    - POST /api/export/pdf                - Export PDF
-    - POST /api/suggestions/investor-questions - Get investor questions
-    - GET  /api/templates                 - List templates
-    - GET  /health                        - Health check
+    Server Configuration:
+    - Port: {Config.PORT}
+    - Model: {Config.OPENAI_MODEL if not Config.USE_BUDGET_MODEL else 'gpt-3.5-turbo'}
+    - AI Status: {'✅ Connected' if ai_client else '❌ No API Key'}
     
-    To test: 
-    curl -X POST http://localhost:{port}/api/generate-pitch \\
-         -H "Content-Type: application/json" \\
-         -d '{{"company_name": "TechCo", "problem": "Slow processes", "solution": "AI automation"}}'
+    Available Endpoints:
+    - GET  /              → Main application UI
+    - GET  /health        → Health check
+    - POST /api/generate-pitch → Generate 2-3 page pitch
+    
+    {'='*50}
+    Starting server at http://localhost:{Config.PORT}
+    {'='*50}
     """)
     
-    app.run(host='0.0.0.0', port=port, debug=debug)
+    app.run(
+        host='0.0.0.0',
+        port=Config.PORT,
+        debug=False
+    )
