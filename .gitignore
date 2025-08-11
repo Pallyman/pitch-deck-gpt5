@@ -1,0 +1,342 @@
+# ============================================
+# Python
+# ============================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ============================================
+# Virtual Environments
+# ============================================
+venv/
+env/
+ENV/
+.venv/
+env.bak/
+venv.bak/
+virtualenv/
+.virtualenv/
+
+# ============================================
+# Environment Variables - CRITICAL!
+# ============================================
+.env
+.env.local
+.env.production
+.env.*.local
+*.env
+env_example.txt
+secrets.txt
+api_keys.txt
+
+# ============================================
+# IDE and Editors
+# ============================================
+# VSCode
+.vscode/
+*.code-workspace
+.history/
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*.swn
+*~
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# ============================================
+# Operating System Files
+# ============================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Linux
+.directory
+.Trash-*
+.nfs*
+
+# ============================================
+# Flask & Web Application
+# ============================================
+instance/
+.webassets-cache
+.env
+flask_session/
+*.log
+logs/
+
+# ============================================
+# Database
+# ============================================
+*.db
+*.sqlite
+*.sqlite3
+*.sql
+database/
+
+# ============================================
+# Redis
+# ============================================
+dump.rdb
+redis.conf
+
+# ============================================
+# Testing & Coverage
+# ============================================
+.coverage
+.coverage.*
+.pytest_cache/
+.tox/
+htmlcov/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+test-results/
+junit.xml
+
+# ============================================
+# Documentation
+# ============================================
+docs/_build/
+site/
+mkdocs.yml
+
+# ============================================
+# Package Management
+# ============================================
+# Poetry
+poetry.lock
+
+# Pipenv
+Pipfile.lock
+
+# ============================================
+# Temporary Files
+# ============================================
+*.tmp
+*.bak
+*.backup
+*.old
+temp/
+tmp/
+cache/
+
+# ============================================
+# Upload Folders
+# ============================================
+uploads/
+user_uploads/
+static/uploads/
+media/
+
+# ============================================
+# Generated Files
+# ============================================
+*.pdf
+*.docx
+*.pptx
+output/
+exports/
+generated/
+
+# Except example files
+!examples/*.pdf
+!examples/*.docx
+!examples/*.pptx
+
+# ============================================
+# Logs and Debugging
+# ============================================
+*.log
+logs/
+log/
+debug/
+*.stackdump
+
+# ============================================
+# Security - NEVER commit these!
+# ============================================
+*.key
+*.pem
+*.crt
+*.p12
+certificates/
+ssl/
+.secrets/
+credentials.json
+service-account.json
+
+# ============================================
+# Node.js (if you add a frontend build later)
+# ============================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+.npm
+
+# ============================================
+# Deployment
+# ============================================
+# Heroku
+*.pyc
+staticfiles/
+
+# AWS
+.elasticbeanstalk/
+.aws/
+
+# Docker
+*.dockerfile
+docker-compose.override.yml
+.dockerignore
+
+# ============================================
+# Jupyter Notebooks
+# ============================================
+.ipynb_checkpoints/
+*.ipynb
+
+# ============================================
+# C extensions
+# ============================================
+*.so
+
+# ============================================
+# Distribution / packaging
+# ============================================
+.Python
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ============================================
+# Installer logs
+# ============================================
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ============================================
+# Unit test / coverage reports
+# ============================================
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+
+# ============================================
+# Translations
+# ============================================
+*.mo
+*.pot
+
+# ============================================
+# Celery
+# ============================================
+celerybeat-schedule
+celerybeat.pid
+
+# ============================================
+# SageMath parsed files
+# ============================================
+*.sage.py
+
+# ============================================
+# Spyder project settings
+# ============================================
+.spyderproject
+.spyproject
+
+# ============================================
+# Rope project settings
+# ============================================
+.ropeproject
+
+# ============================================
+# Custom ignores for this project
+# ============================================
+# Ignore test pitch decks
+test_decks/
+test_resumes/
+
+# Ignore user data
+user_data/
+sessions/
+
+# But keep important folders with .gitkeep
+!backend/.gitkeep
+!frontend/.gitkeep
+!static/.gitkeep
+!templates/.gitkeep
